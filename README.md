@@ -1,0 +1,22 @@
+# aretheyup
+
+A real-time outage detector that combines automated health checks with crowdsourced user reports to show you whether a service is actually down or if it's just your connection.
+
+## Stack
+
+- Go
+    - Gin for API (?)
+- HTMX
+- Tailwind
+- SQLite (?)
+- Redis
+
+## Idea
+
+- Real-time SEO-friendly status pages for different websites
+- Minimal design, as little JS as possible (heavy HTMX + Go)
+- Get data from
+    - user reports (/{service} will have a button)
+    - automated ping bots to supplement
+- 100% anonymous
+- Free for the public page, paid API (in the future maybe, starting with the public thing)
