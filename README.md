@@ -5,10 +5,11 @@ A real-time outage detector that combines automated health checks with crowdsour
 ## Stack
 
 - Go
-    - Gin for API (?)
+    - Gin
+    - GORM
 - HTMX
 - Tailwind
-- SQLite (?)
+- PostgreSQL
 - Redis
 
 ## Idea
