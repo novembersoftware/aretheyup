@@ -20,3 +20,19 @@ A real-time outage detector that combines automated health checks with crowdsour
     - automated ping bots to supplement
 - 100% anonymous
 - Free for the public page, paid API (in the future maybe, starting with the public thing)
+
+## Development
+
+1. Start the services:
+
+```bash
+docker compose -f docker-compose.dev.yml up -d
+```
+
+2. Run the app:
+
+```bash
+go run main.go
+# or
+air main.go # automatic restarts
+```

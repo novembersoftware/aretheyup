@@ -6,6 +6,7 @@ import (
 	"github.com/joho/godotenv"
 	"github.com/novembersoftware/aretheyup/api"
 	"github.com/novembersoftware/aretheyup/config"
+	"github.com/novembersoftware/aretheyup/services"
 	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
 )
@@ -17,5 +18,7 @@ func init() {
 }
 
 func main() {
+	services.DB.Connect()
+	services.Redis.Connect()
 	api.Start()
 }
