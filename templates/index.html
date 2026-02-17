@@ -1,0 +1,22 @@
+{{ define "index.html" }} {{ template "base.html" . }} {{ end }} {{ define
+"content" }}
+<div class="mx-auto px-4 pt-16 pb-12 max-w-2xl">
+	<!-- Search -->
+	<div class="text-start mb-14">
+		<h1 class="text-3xl font-bold tracking-tight mb-2">
+			Real-time outage detection
+		</h1>
+		<p class="text-sm text-base-content/50 mb-6">
+			Check if a service is actually down, or if it's just you.
+		</p>
+		<input
+			class="input w-full bg-base-200 border-base-content/10 font-mono text-sm focus:outline-none focus:ring placeholder:text-base-content/30"
+			placeholder="Search for a service..."
+			autocomplete="off"
+			spellcheck="false"
+		/>
+	</div>
+
+	{{ template "service-list" . }}
+</div>
+{{ end }}

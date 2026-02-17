@@ -1,0 +1,92 @@
+{{ define "service-list" }}
+
+<!-- Issues right now -->
+{{ $hasIssues := false }} {{ range .Services }} {{ if or (eq .Status "Degraded")
+(eq .Status "Outage") }} {{ $hasIssues = true }} {{ end }} {{ end }} {{ if
+$hasIssues }}
+<div class="mb-10">
+	<h2
+		class="text-xs font-semibold uppercase tracking-widest text-base-content/40 mb-3"
+	>
+		Issues right now
+	</h2>
+	<div class="flex flex-col gap-1">
+		{{ range .Services }} {{ if or (eq .Status "Degraded") (eq .Status
+		"Outage") }}
+		<a
+			href="/{{ .Slug }}"
+			class="flex items-center justify-between px-3 py-2.5 rounded-lg hover:bg-base-200 transition-colors group"
+		>
+			<div class="flex items-center gap-3">
+				{{ if eq .Status "Outage" }}
+				<span class="w-2 h-2 rounded-full bg-error shrink-0"></span>
+				{{ else }}
+				<span class="w-2 h-2 rounded-full bg-warning shrink-0"></span>
+				{{ end }}
+				<img
+					src="https://www.google.com/s2/favicons?domain={{ .URL }}&sz=32"
+					alt=""
+					class="w-4 h-4 shrink-0 rounded-sm"
+					loading="lazy"
+				/>
+				<span class="text-sm font-medium">{{ .Name }}</span>
+			</div>
+			<div class="flex items-center gap-3">
+				<span class="text-xs text-base-content/40"
+					>{{ .RecentReports }} reports</span
+				>
+				{{ if eq .Status "Outage" }}
+				<span class="text-xs font-medium text-error">Outage</span>
+				{{ else }}
+				<span class="text-xs font-medium text-warning">Degraded</span>
+				{{ end }}
+			</div>
+		</a>
+		{{ end }} {{ end }}
+	</div>
+</div>
+{{ end }}
+
+<!-- All services -->
+<div>
+	<h2
+		class="text-xs font-semibold uppercase tracking-widest text-base-content/40 mb-3"
+	>
+		All services
+	</h2>
+	<div class="flex flex-col gap-0.5">
+		{{ range .Services }}
+		<a
+			href="/{{ .Slug }}"
+			class="flex items-center justify-between px-3 py-2 rounded-lg hover:bg-base-200 transition-colors group"
+		>
+			<div class="flex items-center gap-3">
+				{{ if eq .Status "Operational" }}
+				<span
+					class="w-1.5 h-1.5 rounded-full bg-success shrink-0"
+				></span>
+				{{ else if eq .Status "Degraded" }}
+				<span
+					class="w-1.5 h-1.5 rounded-full bg-warning shrink-0"
+				></span>
+				{{ else if eq .Status "Outage" }}
+				<span class="w-1.5 h-1.5 rounded-full bg-error shrink-0"></span>
+				{{ end }}
+				<img
+					src="https://www.google.com/s2/favicons?domain={{ .URL }}&sz=32"
+					alt=""
+					class="w-4 h-4 shrink-0 rounded-sm"
+					loading="lazy"
+				/>
+				<span
+					class="text-sm text-base-content/80 group-hover:text-base-content transition-colors"
+					>{{ .Name }}</span
+				>
+			</div>
+			<span class="text-xs text-base-content/30">{{ .Category }}</span>
+		</a>
+		{{ end }}
+	</div>
+</div>
+
+{{ end }}
