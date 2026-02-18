@@ -19,6 +19,7 @@ func init() {
 
 func main() {
 	services.DB.Connect()
+	services.DB.Migrate()
 	services.Redis.Connect()
 	api.Start()
 }
