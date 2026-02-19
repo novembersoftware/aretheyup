@@ -1,6 +1,8 @@
 package routes
 
 import (
+	"time"
+
 	"github.com/gin-gonic/gin"
 	"github.com/novembersoftware/aretheyup/algorithm"
 	"github.com/novembersoftware/aretheyup/lib"
@@ -19,35 +21,42 @@ type ServiceResponse struct {
 }
 
 // GET /api/services
+// Returns the top 50 services ordered by recent report count (last 10 minutes).
 func getServices(c *gin.Context) {
-	const html = "service-list"
-
-	var serviceList []struct {
-		ID          uint
-		Slug        string
-		Name        string
-		HomepageURL string
-		Category    string
+	var rows []struct {
+		ID               uint
+		Slug             string
+		Name             string
+		HomepageURL      string
+		Category         string
+		RecentReportCount int64
 	}
-	services.DB.Table("services").
-		Select("services.id, services.slug, services.name, services.homepage_url, services.category").
-		Find(&serviceList)
 
-	response := make([]ServiceResponse, len(serviceList))
-	for i, s := range serviceList {
-		status, recentReports := algorithm.GetServiceStatus(s.ID)
+	tenMinutesAgo := time.Now().Add(-10 * time.Minute)
+	services.DB.Raw(`
+		SELECT s.id, s.slug, s.name, s.homepage_url, s.category,
+		       COUNT(ur.id) AS recent_report_count
+		FROM services s
+		LEFT JOIN user_reports ur ON ur.service_id = s.id AND ur.timestamp > ?
+		GROUP BY s.id
+		ORDER BY recent_report_count DESC
+		LIMIT 50
+	`, tenMinutesAgo).Scan(&rows)
+
+	response := make([]ServiceResponse, len(rows))
+	for i, s := range rows {
 		response[i] = ServiceResponse{
 			ID:            s.ID,
 			Slug:          s.Slug,
 			Name:          s.Name,
 			URL:           s.HomepageURL,
 			Category:      s.Category,
-			Status:        string(status),
-			RecentReports: recentReports,
+			Status:        string(algorithm.StatusFromCount(s.RecentReportCount)),
+			RecentReports: s.RecentReportCount,
 		}
 	}
 
-	lib.Respond(c, 200, html, gin.H{
+	lib.Respond(c, 200, "service-list", gin.H{
 		"services": response,
 	})
 }

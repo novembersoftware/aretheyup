@@ -19,6 +19,15 @@ const (
 	StatusOutage      Status = "Outage"
 )
 
+func StatusFromCount(count int64) Status {
+	if count >= 10 {
+		return StatusOutage
+	} else if count > 5 {
+		return StatusDegraded
+	}
+	return StatusOperational
+}
+
 func GetServiceStatus(serviceID uint) (Status, int64) {
 	var count int64
 	tenMinutesAgo := time.Now().Add(-10 * time.Minute)
@@ -26,10 +35,5 @@ func GetServiceStatus(serviceID uint) (Status, int64) {
 		Where("service_id = ? AND timestamp > ?", serviceID, tenMinutesAgo).
 		Count(&count)
 
-	if count >= 10 {
-		return StatusOutage, count
-	} else if count > 5 {
-		return StatusDegraded, count
-	}
-	return StatusOperational, count
+	return StatusFromCount(count), count
 }
