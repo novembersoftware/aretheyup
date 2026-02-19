@@ -3,6 +3,7 @@ package routes
 import (
 	"github.com/gin-gonic/gin"
 	"github.com/novembersoftware/aretheyup/algorithm"
+	"github.com/novembersoftware/aretheyup/lib"
 	"github.com/novembersoftware/aretheyup/services"
 )
 
@@ -18,6 +19,8 @@ type ServiceResponse struct {
 
 // GET /api/services
 func getServices(c *gin.Context) {
+	const html = "service-list"
+
 	var serviceList []struct {
 		ID          uint
 		Slug        string
@@ -43,7 +46,7 @@ func getServices(c *gin.Context) {
 		}
 	}
 
-	c.HTML(200, "service-list", gin.H{
-		"Services": response,
+	lib.Respond(c, 200, html, gin.H{
+		"services": response,
 	})
 }

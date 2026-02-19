@@ -1,7 +1,7 @@
 {{ define "service-list" }}
 
 <!-- Issues right now -->
-{{ $hasIssues := false }} {{ range .Services }} {{ if or (eq .Status "Degraded")
+{{ $hasIssues := false }} {{ range .services }} {{ if or (eq .Status "Degraded")
 (eq .Status "Outage") }} {{ $hasIssues = true }} {{ end }} {{ end }} {{ if
 $hasIssues }}
 <div class="mb-10">
@@ -11,7 +11,7 @@ $hasIssues }}
 		Issues right now
 	</h2>
 	<div class="flex flex-col gap-1">
-		{{ range .Services }} {{ if or (eq .Status "Degraded") (eq .Status
+		{{ range .services }} {{ if or (eq .Status "Degraded") (eq .Status
 		"Outage") }}
 		<a
 			href="/{{ .Slug }}"
@@ -55,7 +55,7 @@ $hasIssues }}
 		All services
 	</h2>
 	<div class="flex flex-col gap-0.5">
-		{{ range .Services }}
+		{{ range .services }}
 		<a
 			href="/{{ .Slug }}"
 			class="flex items-center justify-between px-3 py-2 rounded-lg hover:bg-base-200 transition-colors group"
