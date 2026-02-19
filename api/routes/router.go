@@ -10,5 +10,6 @@ func SetupPageRoutes(r *gin.Engine) {
 func SetupAPIRoutes(r *gin.Engine) {
 	g := r.Group("/api")
 	g.GET("/services", getServices)
+	g.GET("/services/search", searchServices)
 	g.GET("/service/:slug", getService)
 }

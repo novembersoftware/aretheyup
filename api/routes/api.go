@@ -71,6 +71,54 @@ type ServiceDetailResponse struct {
 	RecentReports int64  `json:"recent_reports"`
 }
 
+// GET /api/services/search?q=...
+func searchServices(c *gin.Context) {
+	q := c.Query("q")
+
+	if q == "" {
+		getServices(c)
+		return
+	}
+
+	var rows []struct {
+		ID                uint
+		Slug              string
+		Name              string
+		HomepageURL       string
+		Category          string
+		RecentReportCount int64
+	}
+
+	tenMinutesAgo := time.Now().Add(-10 * time.Minute)
+	services.DB.Raw(`
+		SELECT s.id, s.slug, s.name, s.homepage_url, s.category,
+		       COUNT(ur.id) AS recent_report_count
+		FROM services s
+		LEFT JOIN user_reports ur ON ur.service_id = s.id AND ur.timestamp > ?
+		WHERE LOWER(s.name) LIKE LOWER(?)
+		GROUP BY s.id
+		ORDER BY recent_report_count DESC
+		LIMIT 50
+	`, tenMinutesAgo, "%"+q+"%").Scan(&rows)
+
+	response := make([]ServiceResponse, len(rows))
+	for i, s := range rows {
+		response[i] = ServiceResponse{
+			ID:            s.ID,
+			Slug:          s.Slug,
+			Name:          s.Name,
+			URL:           s.HomepageURL,
+			Category:      s.Category,
+			Status:        string(algorithm.StatusFromCount(s.RecentReportCount)),
+			RecentReports: s.RecentReportCount,
+		}
+	}
+
+	lib.Respond(c, 200, "service-list", gin.H{
+		"services": response,
+	})
+}
+
 // GET /api/service/:slug
 func getService(c *gin.Context) {
 	slug := c.Param("slug")
