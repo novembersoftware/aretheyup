@@ -23,7 +23,8 @@ func Start() {
 	templ = template.Must(templ.ParseGlob("templates/partials/*.html"))
 	r.SetHTMLTemplate(templ)
 
-	routes.SetupPublicRoutes(r)
+	routes.SetupPageRoutes(r)
+	routes.SetupAPIRoutes(r)
 
 	run(r)
 }
