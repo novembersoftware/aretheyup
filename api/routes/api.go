@@ -40,7 +40,7 @@ func getServices(c *gin.Context) {
 		LEFT JOIN user_reports ur ON ur.service_id = s.id AND ur.timestamp > ?
 		GROUP BY s.id
 		ORDER BY recent_report_count DESC
-		LIMIT 50
+		LIMIT 48
 	`, tenMinutesAgo).Scan(&rows)
 
 	response := make([]ServiceResponse, len(rows))
@@ -98,7 +98,7 @@ func searchServices(c *gin.Context) {
 		WHERE LOWER(s.name) LIKE LOWER(?)
 		GROUP BY s.id
 		ORDER BY recent_report_count DESC
-		LIMIT 50
+		LIMIT 48
 	`, tenMinutesAgo, "%"+q+"%").Scan(&rows)
 
 	response := make([]ServiceResponse, len(rows))
