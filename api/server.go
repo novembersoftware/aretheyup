@@ -20,7 +20,7 @@ func Start() {
 	r.Use(middleware.Logger)
 
 	templ := template.Must(template.New("").ParseGlob("templates/*.html"))
-	templ = template.Must(templ.ParseGlob("templates/partials/*.html"))
+	templ = template.Must(templ.ParseGlob("templates/components/*.html"))
 	r.SetHTMLTemplate(templ)
 
 	r.Static("/static", "./static")
