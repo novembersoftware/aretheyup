@@ -2,6 +2,22 @@
 
 A real-time outage detector that combines automated health checks with crowdsourced user reports to show you whether a service is actually down or if it's just your connection.
 
+## Development
+
+### Requirements
+
+1. Go (v1.25+)
+2. Docker
+
+```bash
+# run docker services
+docker compose -f docker-compose.dev.yml up -d
+# run the app with air
+air main.go
+# OR, normally
+go run main.go
+```
+
 ## Stack
 
 - Go
@@ -21,19 +37,3 @@ A real-time outage detector that combines automated health checks with crowdsour
     - automated ping bots to supplement
 - 100% anonymous
 - Free for the public page, paid API (in the future maybe, starting with the public thing)
-
-## Development
-
-1. Start the services:
-
-```bash
-docker compose -f docker-compose.dev.yml up -d
-```
-
-2. Run the app:
-
-```bash
-go run main.go
-# or
-air main.go # automatic restarts
-```
