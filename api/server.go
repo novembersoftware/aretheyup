@@ -4,6 +4,7 @@ import (
 	"html/template"
 
 	"github.com/gin-gonic/gin"
+	"github.com/kaugesaar/lucide-go"
 	"github.com/novembersoftware/aretheyup/api/middleware"
 	"github.com/novembersoftware/aretheyup/api/routes"
 	"github.com/novembersoftware/aretheyup/config"
@@ -19,7 +20,7 @@ func Start() {
 	r.Use(gin.Recovery())
 	r.Use(middleware.Logger)
 
-	templ := template.Must(template.New("").ParseGlob("templates/*.html"))
+	templ := template.Must(template.New("").Funcs(lucide.FuncMap()).ParseGlob("templates/*.html"))
 	templ = template.Must(templ.ParseGlob("templates/components/*.html"))
 	r.SetHTMLTemplate(templ)
 
