@@ -22,6 +22,15 @@ air main.go
 go run main.go
 ```
 
+### Cleanup
+
+```bash
+# shutdown the docker services
+docker compose -f docker-compose.dev.yml down
+# (optional) remove the docker volumes
+docker volume rm aretheyup-postgres_data aretheyup-redis_data
+```
+
 ## Stack
 
 - Go
