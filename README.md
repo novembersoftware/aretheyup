@@ -9,6 +9,10 @@ A real-time outage detector that combines automated health checks with crowdsour
 1. Go (v1.25+)
 2. Docker
 
+### Run the app
+
+- Set variables in .env.local (check [.env.example](./.env.example))
+
 ```bash
 # run docker services
 docker compose -f docker-compose.dev.yml up -d
