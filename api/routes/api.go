@@ -5,6 +5,7 @@ import (
 	"github.com/novembersoftware/aretheyup/algorithm"
 	"github.com/novembersoftware/aretheyup/lib"
 	"github.com/novembersoftware/aretheyup/services"
+	"github.com/novembersoftware/aretheyup/structs"
 )
 
 type ServiceResponse struct {
@@ -48,5 +49,44 @@ func getServices(c *gin.Context) {
 
 	lib.Respond(c, 200, html, gin.H{
 		"services": response,
+	})
+}
+
+type ServiceDetailResponse struct {
+	ID            uint   `json:"id"`
+	Slug          string `json:"slug"`
+	Name          string `json:"name"`
+	URL           string `json:"url"`
+	Category      string `json:"category"`
+	Status        string `json:"status"`
+	RecentReports int64  `json:"recent_reports"`
+}
+
+// GET /api/service/:slug
+func getService(c *gin.Context) {
+	slug := c.Param("slug")
+
+	var service structs.Service
+	if err := services.DB.Where("slug = ?", slug).First(&service).Error; err != nil {
+		c.HTML(404, "service.html", gin.H{
+			"Service": nil,
+			"Error":   "Service not found",
+		})
+		return
+	}
+
+	status, recentReports := algorithm.GetServiceStatus(service.ID)
+	response := ServiceDetailResponse{
+		ID:            service.ID,
+		Slug:          service.Slug,
+		Name:          service.Name,
+		URL:           service.HomepageURL,
+		Category:      service.Category,
+		Status:        string(status),
+		RecentReports: recentReports,
+	}
+
+	lib.Respond(c, 200, "service-card", gin.H{
+		"service": response,
 	})
 }
