@@ -21,14 +21,14 @@ type ServiceResponse struct {
 }
 
 // GET /api/services
-// Returns the top 50 services ordered by recent report count (last 10 minutes).
+// Returns the top 50 services ordered by recent report count (last 10 minutes (for now)).
 func getServices(c *gin.Context) {
 	var rows []struct {
-		ID               uint
-		Slug             string
-		Name             string
-		HomepageURL      string
-		Category         string
+		ID                uint
+		Slug              string
+		Name              string
+		HomepageURL       string
+		Category          string
 		RecentReportCount int64
 	}
 
