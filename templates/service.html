@@ -1,76 +1,105 @@
 {{define "service.html"}}
 <!doctype html>
 <html lang="en">
-{{ template "head" . }}
+	{{ template "head" . }}
 
-<body class="min-h-screen antialiased bg-base-100 flex flex-col">
-	{{ template "navbar" . }}
-	<main class="flex-1">
-		<div class="mx-auto px-4 pt-16 pb-12 max-w-2xl">
-			{{ if .Error }} {{ template "service-not-found" . }} {{ else }}
-			<div class="mb-8">
-				<a href="/" class="text-sm text-base-content/50 hover:text-base-content">
-					&larr; Back to all services
-				</a>
-			</div>
-
-			<div class="flex items-center gap-4 mb-8 w-full">
-				<img src="https://www.google.com/s2/favicons?domain={{ .Service.URL }}&sz=64" alt=""
-					class="w-12 h-12 rounded-lg" />
-				<div class="w-full">
-					<div class="flex items-center justify-between w-full">
-						<h1 class="text-2xl font-bold">
-							{{ .Service.Name }}
-						</h1>
-						<button class="btn">
-							<span class="text-sm">I'm having issues</span>
-						</button>
-					</div>
-					<a href="{{ .Service.URL }}" target="_blank">{{ .Service.URL }}</a>
+	<body class="min-h-screen antialiased bg-base-100 flex flex-col">
+		{{ template "navbar" . }}
+		<main class="flex-1">
+			<div class="mx-auto px-4 pt-16 pb-12 max-w-2xl">
+				{{ if .Error }} {{ template "service-not-found" . }} {{ else }}
+				<div class="mb-8">
+					<a
+						href="/"
+						class="text-sm text-base-content/50 hover:text-base-content"
+					>
+						&larr; Back to all services
+					</a>
 				</div>
-			</div>
 
-			<div class="card bg-base-200 border border-base-content/10 mb-6">
-				<div class="card-body">
-					<div class="flex items-center justify-between">
-						<span class="text-sm text-base-content/50">Status</span>
-						<div class="flex items-center gap-2">
-							{{ if eq .Service.Status "Operational" }}
-							<span class="w-2 h-2 rounded-full bg-success"></span>
-							<span class="text-sm font-medium text-success">Operational</span>
-							{{ else if eq .Service.Status "Degraded" }}
-							<span class="w-2 h-2 rounded-full bg-warning"></span>
-							<span class="text-sm font-medium text-warning">Degraded</span>
-							{{ else if eq .Service.Status "Outage" }}
-							<span class="w-2 h-2 rounded-full bg-error"></span>
-							<span class="text-sm font-medium text-error">Outage</span>
-							{{ end }}
+				<div class="flex items-center gap-4 mb-8 w-full">
+					<img
+						src="https://www.google.com/s2/favicons?domain={{ .Service.URL }}&sz=64"
+						alt=""
+						class="w-12 h-12 rounded-lg"
+					/>
+					<div class="w-full">
+						<div class="flex items-center justify-between w-full">
+							<h1 class="text-2xl font-bold">
+								{{ .Service.Name }}
+							</h1>
+							<button class="btn">
+								<span class="text-sm">I'm having issues</span>
+							</button>
+						</div>
+						<a href="{{ .Service.URL }}" target="_blank"
+							>{{ .Service.URL }}</a
+						>
+					</div>
+				</div>
+
+				<div
+					class="card bg-base-200 border border-base-content/10 mb-6"
+				>
+					<div class="card-body">
+						<div class="flex items-center justify-between">
+							<span class="text-sm text-base-content/50"
+								>Status</span
+							>
+							<div class="flex items-center gap-2">
+								{{ if eq .Service.Status "Operational" }}
+								<span
+									class="w-2 h-2 rounded-full bg-success"
+								></span>
+								<span class="text-sm font-medium text-success"
+									>Operational</span
+								>
+								{{ else if eq .Service.Status "Degraded" }}
+								<span
+									class="w-2 h-2 rounded-full bg-warning"
+								></span>
+								<span class="text-sm font-medium text-warning"
+									>Degraded</span
+								>
+								{{ else if eq .Service.Status "Outage" }}
+								<span
+									class="w-2 h-2 rounded-full bg-error"
+								></span>
+								<span class="text-sm font-medium text-error"
+									>Outage</span
+								>
+								{{ end }}
+							</div>
+						</div>
+						<div class="divider my-2"></div>
+						<div class="flex items-center justify-between">
+							<span class="text-sm text-base-content/50"
+								>Category</span
+							>
+							<span class="text-sm">{{ .Service.Category }}</span>
+						</div>
+						<div class="divider my-2"></div>
+						<div class="flex items-center justify-between">
+							<span class="text-sm text-base-content/50"
+								>Reports (last 10 min)</span
+							>
+							<span class="text-sm font-mono"
+								>{{ .Service.RecentReports }}</span
+							>
 						</div>
 					</div>
-					<div class="divider my-2"></div>
-					<div class="flex items-center justify-between">
-						<span class="text-sm text-base-content/50">Category</span>
-						<span class="text-sm">{{ .Service.Category }}</span>
-					</div>
-					<div class="divider my-2"></div>
-					<div class="flex items-center justify-between">
-						<span class="text-sm text-base-content/50">Reports (last 10 min)</span>
-						<span class="text-sm font-mono">{{ .Service.RecentReports }}</span>
-					</div>
+				</div>
+
+				<div class="text-center text-sm text-base-content/40">
+					<p>
+						Status determined by user reports in the last 10
+						minutes.
+					</p>
 				</div>
 			</div>
-
-			<div class="text-center text-sm text-base-content/40">
-				<p>
-					Status determined by user reports in the last 10
-					minutes.
-				</p>
-			</div>
-		</div>
-		{{ end }}
-	</main>
-	{{ template "footer" . }}
-</body>
-
+			{{ end }}
+		</main>
+		{{ template "footer" . }}
+	</body>
 </html>
 {{ end }}
