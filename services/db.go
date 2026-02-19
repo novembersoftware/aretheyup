@@ -11,6 +11,7 @@ import (
 	"github.com/rs/zerolog/log"
 	"gorm.io/driver/postgres"
 	"gorm.io/gorm"
+	"gorm.io/gorm/logger"
 )
 
 type dbService struct {
@@ -20,7 +21,9 @@ type dbService struct {
 var DB = &dbService{}
 
 func (s *dbService) Connect() {
-	db, err := gorm.Open(postgres.Open(config.C.DBDSN))
+	db, err := gorm.Open(postgres.Open(config.C.DBDSN), &gorm.Config{
+		Logger: logger.Default.LogMode(logger.Silent),
+	})
 	if err != nil {
 		log.Fatal().Err(err).Msg("Failed to connect to database")
 	}
