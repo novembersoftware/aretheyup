@@ -45,7 +45,20 @@ func randomSlug(r *rand.Rand) string {
 	return string(b)
 }
 
-func (s *dbService) Seed(numServices int) {
+func (s *dbService) Seed(numServices int, clearDB bool) {
+	if config.IsProd() {
+		log.Warn().Msg("Seeding database in production is disabled")
+		return
+	}
+
+	if clearDB {
+		err := s.Exec("DELETE FROM user_reports; DELETE FROM services").Error
+		if err != nil {
+			log.Fatal().Err(err).Msg("Failed to clear database")
+		}
+		log.Info().Msg("Database cleared")
+	}
+
 	r := rand.New(rand.NewSource(time.Now().UnixNano()))
 
 	categories := []string{"social", "streaming", "cloud", "gaming", "finance", "shopping", "news", "other"}
