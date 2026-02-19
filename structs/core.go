@@ -3,10 +3,23 @@ package structs
 import "time"
 
 type Service struct {
+	ID          uint         `json:"id"`
+	Slug        string       `json:"slug" gorm:"unique"`
+	Name        string       `json:"name" gorm:"not null"`
+	HomepageURL string       `json:"homepage_url" gorm:"not null"`
+	Category    string       `json:"category" gorm:"default:other"`
+	Reports     []UserReport `json:"reports" gorm:"foreignKey:ServiceID"`
+	CreatedAt   time.Time    `json:"created_at"`
+	UpdatedAt   time.Time    `json:"updated_at"`
+}
+
+type UserReport struct {
 	ID          uint      `json:"id"`
-	Slug        string    `gorm:"unique" json:"slug"`
-	HomepageURL string    `gorm:"not null" json:"homepage_url"`
-	Category    string    `gorm:"default:other" json:"category"`
+	ServiceID   uint      `json:"service_id"`
+	IPAddress   string    `json:"ip_address"`
+	UserAgent   string    `json:"user_agent"`
+	Timestamp   time.Time `json:"timestamp"`
+	Fingerprint string    `json:"fingerprint"`
 	CreatedAt   time.Time `json:"created_at"`
 	UpdatedAt   time.Time `json:"updated_at"`
 }

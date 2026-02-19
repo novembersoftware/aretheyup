@@ -20,6 +20,7 @@ func init() {
 func main() {
 	services.DB.Connect()
 	services.DB.Migrate()
+	// services.DB.Seed(50)
 	services.Redis.Connect()
 	api.Start()
 }
