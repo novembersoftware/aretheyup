@@ -12,9 +12,16 @@ import (
 )
 
 func init() {
-	log.Logger = zerolog.New(zerolog.ConsoleWriter{Out: os.Stderr}).With().Timestamp().Caller().Logger()
 	_ = godotenv.Load(".env.local")
 	config.Load()
+
+	if config.IsProd() {
+		zerolog.SetGlobalLevel(zerolog.InfoLevel)
+		log.Logger = zerolog.New(os.Stderr).With().Timestamp().Caller().Logger()
+	} else {
+		zerolog.SetGlobalLevel(zerolog.DebugLevel)
+		log.Logger = zerolog.New(zerolog.ConsoleWriter{Out: os.Stderr}).With().Timestamp().Caller().Logger()
+	}
 }
 
 func main() {
