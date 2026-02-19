@@ -68,9 +68,8 @@ func getService(c *gin.Context) {
 
 	var service structs.Service
 	if err := services.DB.Where("slug = ?", slug).First(&service).Error; err != nil {
-		c.HTML(404, "service.html", gin.H{
-			"Service": nil,
-			"Error":   "Service not found",
+		lib.Respond(c, 404, "service-not-found", gin.H{
+			"error": "Service not found",
 		})
 		return
 	}

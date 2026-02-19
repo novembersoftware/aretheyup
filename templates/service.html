@@ -7,7 +7,6 @@
 		{{ template "navbar" . }}
 		<main class="flex-1">
 			<div class="mx-auto px-4 pt-16 pb-12 max-w-2xl">
-				{{ if .Error }} {{ template "service-not-found" . }} {{ else }}
 				<div class="mb-8">
 					<a
 						href="/"
@@ -21,6 +20,7 @@
 				<div
 					hx-get="/api/service/{{ .serviceSlug }}"
 					hx-trigger="load, every 10s"
+					hx-swap="innerHTML"
 				>
 					<div class="animate-pulse space-y-3">
 						<div class="h-4 bg-base-200 rounded w-24"></div>
@@ -28,15 +28,7 @@
 						<div class="h-10 bg-base-200 rounded"></div>
 					</div>
 				</div>
-
-				<div class="text-center text-sm text-base-content/40">
-					<p>
-						Status determined by user reports in the last 10
-						minutes.
-					</p>
-				</div>
 			</div>
-			{{ end }}
 		</main>
 		{{ template "footer" . }}
 	</body>
