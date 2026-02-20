@@ -14,29 +14,26 @@ import (
 	"gorm.io/gorm/logger"
 )
 
-type dbService struct {
-	*gorm.DB
-}
-
-var DB = &dbService{}
-
-func (s *dbService) Connect() {
-	db, err := gorm.Open(postgres.Open(config.C.DBDSN), &gorm.Config{
+// NewDB opens a GORM connection to Postgres using the provided DSN and returns it
+func NewDB(dsn string) (*gorm.DB, error) {
+	db, err := gorm.Open(postgres.Open(dsn), &gorm.Config{
 		Logger: logger.Default.LogMode(logger.Silent),
 	})
 	if err != nil {
-		log.Fatal().Err(err).Msg("Failed to connect to database")
+		return nil, err
 	}
-	s.DB = db
 	log.Info().Msg("Connected to database")
+	return db, nil
 }
 
-func (s *dbService) Migrate() {
-	err := s.AutoMigrate(&structs.Service{}, &structs.UserReport{})
+// Migrate runs GORM AutoMigrate to create or update the schema
+func MigrateDB(db *gorm.DB) error {
+	err := db.AutoMigrate(&structs.Service{}, &structs.UserReport{})
 	if err != nil {
-		log.Fatal().Err(err).Msg("Failed to migrate database")
+		return err
 	}
 	log.Info().Msg("Database migrated")
+	return nil
 }
 
 func randomSlug(r *rand.Rand) string {
@@ -48,14 +45,15 @@ func randomSlug(r *rand.Rand) string {
 	return string(b)
 }
 
-func (s *dbService) Seed(numServices int, clearDB bool) {
+// SeedDB populates the database with fake data for development
+func SeedDB(db *gorm.DB, numServices int, clearDB bool) {
 	if config.IsProd() {
 		log.Warn().Msg("Seeding database in production is disabled")
 		return
 	}
 
 	if clearDB {
-		err := s.Exec("DELETE FROM user_reports; DELETE FROM services").Error
+		err := db.Exec("DELETE FROM user_reports; DELETE FROM services").Error
 		if err != nil {
 			log.Fatal().Err(err).Msg("Failed to clear database")
 		}
@@ -99,7 +97,7 @@ func (s *dbService) Seed(numServices int, clearDB bool) {
 			Category:    category,
 		}
 
-		if err := s.Create(&service).Error; err != nil {
+		if err := db.Create(&service).Error; err != nil {
 			log.Error().Err(err).Msg("Failed to create service")
 			continue
 		}
@@ -124,7 +122,7 @@ func (s *dbService) Seed(numServices int, clearDB bool) {
 				Fingerprint: fmt.Sprintf("fp-%d-%d", service.ID, j),
 			}
 
-			if err := s.Create(&report).Error; err != nil {
+			if err := db.Create(&report).Error; err != nil {
 				log.Error().Err(err).Msg("Failed to create report")
 			}
 		}
@@ -139,7 +137,7 @@ func (s *dbService) Seed(numServices int, clearDB bool) {
 				Fingerprint: fmt.Sprintf("fp-%d-%d-old", service.ID, j),
 			}
 
-			if err := s.Create(&report).Error; err != nil {
+			if err := db.Create(&report).Error; err != nil {
 				log.Error().Err(err).Msg("Failed to create report")
 			}
 		}

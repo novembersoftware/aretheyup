@@ -6,8 +6,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/novembersoftware/aretheyup/algorithm"
 	"github.com/novembersoftware/aretheyup/lib"
-	"github.com/novembersoftware/aretheyup/services"
-	"github.com/novembersoftware/aretheyup/structs"
+	"github.com/novembersoftware/aretheyup/storage"
 )
 
 type ServiceResponse struct {
@@ -21,27 +20,13 @@ type ServiceResponse struct {
 }
 
 // GET /api/services
-// Returns the top 50 services ordered by recent report count (last 10 minutes (for now)).
-func getServices(c *gin.Context) {
-	var rows []struct {
-		ID                uint
-		Slug              string
-		Name              string
-		HomepageURL       string
-		Category          string
-		RecentReportCount int64
+// Returns the top 48 services ordered by recent report count (last 10 minutes)
+func getServices(c *gin.Context, store *storage.Storage) {
+	rows, err := store.ListServices(c.Request.Context())
+	if err != nil {
+		lib.Respond(c, 500, "error", gin.H{"error": "Failed to fetch services"})
+		return
 	}
-
-	tenMinutesAgo := time.Now().Add(-10 * time.Minute)
-	services.DB.Raw(`
-		SELECT s.id, s.slug, s.name, s.homepage_url, s.category,
-		       COUNT(ur.id) AS recent_report_count
-		FROM services s
-		LEFT JOIN user_reports ur ON ur.service_id = s.id AND ur.timestamp > ?
-		GROUP BY s.id
-		ORDER BY recent_report_count DESC
-		LIMIT 48
-	`, tenMinutesAgo).Scan(&rows)
 
 	response := make([]ServiceResponse, len(rows))
 	for i, s := range rows {
@@ -72,34 +57,19 @@ type ServiceDetailResponse struct {
 }
 
 // GET /api/services/search?q=...
-func searchServices(c *gin.Context) {
+func searchServices(c *gin.Context, store *storage.Storage) {
 	q := c.Query("q")
 
 	if q == "" {
-		getServices(c)
+		getServices(c, store)
 		return
 	}
 
-	var rows []struct {
-		ID                uint
-		Slug              string
-		Name              string
-		HomepageURL       string
-		Category          string
-		RecentReportCount int64
+	rows, err := store.SearchServices(c.Request.Context(), q)
+	if err != nil {
+		lib.Respond(c, 500, "error", gin.H{"error": "Failed to search services"})
+		return
 	}
-
-	tenMinutesAgo := time.Now().Add(-10 * time.Minute)
-	services.DB.Raw(`
-		SELECT s.id, s.slug, s.name, s.homepage_url, s.category,
-		       COUNT(ur.id) AS recent_report_count
-		FROM services s
-		LEFT JOIN user_reports ur ON ur.service_id = s.id AND ur.timestamp > ?
-		WHERE LOWER(s.name) LIKE LOWER(?)
-		GROUP BY s.id
-		ORDER BY recent_report_count DESC
-		LIMIT 48
-	`, tenMinutesAgo, "%"+q+"%").Scan(&rows)
 
 	response := make([]ServiceResponse, len(rows))
 	for i, s := range rows {
@@ -120,26 +90,28 @@ func searchServices(c *gin.Context) {
 }
 
 // GET /api/service/:slug
-func getService(c *gin.Context) {
+func getService(c *gin.Context, store *storage.Storage) {
 	slug := c.Param("slug")
 
-	var service structs.Service
-	if err := services.DB.Where("slug = ?", slug).First(&service).Error; err != nil {
+	service, err := store.GetServiceBySlug(c.Request.Context(), slug)
+	if err != nil {
 		lib.Respond(c, 404, "service-not-found", gin.H{
 			"error": "Service not found",
 		})
 		return
 	}
 
-	status, recentReports := algorithm.GetServiceStatus(service.ID)
+	tenMinutesAgo := time.Now().Add(-10 * time.Minute)
+	count, _ := store.CountRecentReports(c.Request.Context(), service.ID, tenMinutesAgo)
+
 	response := ServiceDetailResponse{
 		ID:            service.ID,
 		Slug:          service.Slug,
 		Name:          service.Name,
 		URL:           service.HomepageURL,
 		Category:      service.Category,
-		Status:        string(status),
-		RecentReports: recentReports,
+		Status:        string(algorithm.StatusFromCount(count)),
+		RecentReports: count,
 	}
 
 	lib.Respond(c, 200, "service-card", gin.H{

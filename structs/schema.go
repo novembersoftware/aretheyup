@@ -2,6 +2,8 @@ package structs
 
 import "time"
 
+// gorm schema definitions
+
 type Service struct {
 	ID          uint         `json:"id"`
 	Slug        string       `json:"slug" gorm:"unique"`

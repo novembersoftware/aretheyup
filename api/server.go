@@ -8,10 +8,11 @@ import (
 	"github.com/novembersoftware/aretheyup/api/middleware"
 	"github.com/novembersoftware/aretheyup/api/routes"
 	"github.com/novembersoftware/aretheyup/config"
+	"github.com/novembersoftware/aretheyup/storage"
 	"github.com/rs/zerolog/log"
 )
 
-func Start() {
+func Start(store *storage.Storage) {
 	if config.IsProd() {
 		gin.SetMode(gin.ReleaseMode)
 	}
@@ -27,7 +28,7 @@ func Start() {
 	r.Static("/static", "./static")
 
 	routes.SetupPageRoutes(r)
-	routes.SetupAPIRoutes(r)
+	routes.SetupAPIRoutes(r, store)
 
 	run(r)
 }

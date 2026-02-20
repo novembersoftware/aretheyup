@@ -3,27 +3,23 @@ package services
 import (
 	"context"
 
-	"github.com/novembersoftware/aretheyup/config"
 	r "github.com/redis/go-redis/v9"
 	"github.com/rs/zerolog/log"
 )
 
-type redisService struct {
-	*r.Client
-}
-
-var Redis = &redisService{}
-
-func (s *redisService) Connect() {
-	opt, err := r.ParseURL(config.C.RedisURL)
+// NewRedis parses the provided URL, opens a Redis client, and verifies connectivity
+func NewRedis(url string) (*r.Client, error) {
+	opt, err := r.ParseURL(url)
 	if err != nil {
-		log.Fatal().Err(err).Msg("Failed to parse Redis URL")
+		return nil, err
 	}
-	s.Client = r.NewClient(opt)
 
-	_, err = s.Client.Ping(context.Background()).Result()
-	if err != nil {
-		log.Fatal().Err(err).Msg("Failed to ping Redis")
+	client := r.NewClient(opt)
+
+	if _, err = client.Ping(context.Background()).Result(); err != nil {
+		return nil, err
 	}
+
 	log.Info().Msg("Connected to Redis")
+	return client, nil
 }

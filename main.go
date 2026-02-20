@@ -7,6 +7,7 @@ import (
 	"github.com/novembersoftware/aretheyup/api"
 	"github.com/novembersoftware/aretheyup/config"
 	"github.com/novembersoftware/aretheyup/services"
+	"github.com/novembersoftware/aretheyup/storage"
 	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
 )
@@ -25,9 +26,22 @@ func init() {
 }
 
 func main() {
-	services.DB.Connect()
-	services.DB.Migrate()
-	// services.DB.Seed(50, true)
-	services.Redis.Connect()
-	api.Start()
+	db, err := services.NewDB(config.C.DBDSN)
+	if err != nil {
+		log.Fatal().Err(err).Msg("Failed to connect to database")
+	}
+
+	if err := services.MigrateDB(db); err != nil {
+		log.Fatal().Err(err).Msg("Failed to migrate database")
+	}
+
+	// services.Seed(db, 50, true)
+
+	_, err = services.NewRedis(config.C.RedisURL)
+	if err != nil {
+		log.Fatal().Err(err).Msg("Failed to connect to Redis")
+	}
+
+	store := storage.New(db)
+	api.Start(store)
 }
