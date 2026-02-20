@@ -208,7 +208,6 @@ func (m listModel) view(status string, statusErr bool) string {
 			helpEntry("/", "search"),
 			helpEntry("n", "new"),
 			helpEntry("e", "edit"),
-			helpEntry("p", "probe"),
 			helpEntry("d", "delete"),
 			helpEntry("q", "quit"),
 		}
