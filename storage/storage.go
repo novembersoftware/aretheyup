@@ -38,7 +38,7 @@ func (s *Storage) ListServices(ctx context.Context) ([]ServiceRow, error) {
 		SELECT s.id, s.slug, s.name, s.homepage_url, s.category,
 		       COUNT(ur.id) AS recent_report_count
 		FROM services s
-		LEFT JOIN user_reports ur ON ur.service_id = s.id AND ur.timestamp > ?
+		LEFT JOIN user_reports ur ON ur.service_id = s.id AND ur.created_at > ?
 		GROUP BY s.id
 		ORDER BY recent_report_count DESC
 		LIMIT 48
@@ -55,7 +55,7 @@ func (s *Storage) SearchServices(ctx context.Context, query string) ([]ServiceRo
 		SELECT s.id, s.slug, s.name, s.homepage_url, s.category,
 		       COUNT(ur.id) AS recent_report_count
 		FROM services s
-		LEFT JOIN user_reports ur ON ur.service_id = s.id AND ur.timestamp > ?
+		LEFT JOIN user_reports ur ON ur.service_id = s.id AND ur.created_at > ?
 		WHERE LOWER(s.name) LIKE LOWER(?)
 		GROUP BY s.id
 		ORDER BY recent_report_count DESC
@@ -78,7 +78,7 @@ func (s *Storage) GetServiceBySlug(ctx context.Context, slug string) (*structs.S
 func (s *Storage) CountRecentReports(ctx context.Context, serviceID uint, since time.Time) (int64, error) {
 	var count int64
 	result := s.db.WithContext(ctx).Model(&structs.UserReport{}).
-		Where("service_id = ? AND timestamp > ?", serviceID, since).
+		Where("service_id = ? AND created_at > ?", serviceID, since).
 		Count(&count)
 	return count, result.Error
 }

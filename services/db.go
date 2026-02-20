@@ -28,7 +28,14 @@ func NewDB(dsn string) (*gorm.DB, error) {
 
 // Migrate runs GORM AutoMigrate to create or update the schema
 func MigrateDB(db *gorm.DB) error {
-	err := db.AutoMigrate(&structs.Service{}, &structs.UserReport{})
+	err := db.AutoMigrate(
+		// register schema structs here
+		&structs.Service{},
+		&structs.UserReport{},
+		&structs.ProbeResult{},
+		&structs.ProbeConfig{},
+		&structs.Incident{},
+	)
 	if err != nil {
 		return err
 	}
@@ -118,7 +125,7 @@ func SeedDB(db *gorm.DB, numServices int, clearDB bool) {
 				ServiceID:   service.ID,
 				IPAddress:   fmt.Sprintf("%d.%d.%d.%d", r.Intn(256), r.Intn(256), r.Intn(256), r.Intn(256)),
 				UserAgent:   "Mozilla/5.0 (Seed Data)",
-				Timestamp:   time.Now().Add(-time.Duration(r.Intn(600)) * time.Second),
+				CreatedAt:   time.Now().Add(-time.Duration(r.Intn(600)) * time.Second),
 				Fingerprint: fmt.Sprintf("fp-%d-%d", service.ID, j),
 			}
 
@@ -133,7 +140,7 @@ func SeedDB(db *gorm.DB, numServices int, clearDB bool) {
 				ServiceID:   service.ID,
 				IPAddress:   fmt.Sprintf("%d.%d.%d.%d", r.Intn(256), r.Intn(256), r.Intn(256), r.Intn(256)),
 				UserAgent:   "Mozilla/5.0 (Seed Data)",
-				Timestamp:   time.Now().Add(-time.Duration(r.Intn(168)+10) * time.Hour),
+				CreatedAt:   time.Now().Add(-time.Duration(r.Intn(168)+10) * time.Hour),
 				Fingerprint: fmt.Sprintf("fp-%d-%d-old", service.ID, j),
 			}
 
