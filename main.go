@@ -6,6 +6,7 @@ import (
 	"github.com/joho/godotenv"
 	"github.com/novembersoftware/aretheyup/api"
 	"github.com/novembersoftware/aretheyup/config"
+	"github.com/novembersoftware/aretheyup/manage"
 	"github.com/novembersoftware/aretheyup/services"
 	"github.com/novembersoftware/aretheyup/storage"
 	"github.com/novembersoftware/aretheyup/utils"
@@ -61,8 +62,10 @@ func apiMode(store *storage.Storage) {
 	api.Start(store)
 }
 
-func manageMode(_ *storage.Storage) {
-	// soon
+func manageMode(store *storage.Storage) {
+	if err := manage.Start(store); err != nil {
+		log.Fatal().Err(err).Msg("TUI error")
+	}
 }
 
 func seedMode(db *gorm.DB) {
