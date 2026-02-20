@@ -5,8 +5,8 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/novembersoftware/aretheyup/algorithm"
-	"github.com/novembersoftware/aretheyup/lib"
 	"github.com/novembersoftware/aretheyup/storage"
+	"github.com/novembersoftware/aretheyup/utils"
 )
 
 type ServiceResponse struct {
@@ -24,7 +24,7 @@ type ServiceResponse struct {
 func getServices(c *gin.Context, store *storage.Storage) {
 	rows, err := store.ListServices(c.Request.Context())
 	if err != nil {
-		lib.Respond(c, 500, "error", gin.H{"error": "Failed to fetch services"})
+		utils.Respond(c, 500, "error", gin.H{"error": "Failed to fetch services"})
 		return
 	}
 
@@ -41,7 +41,7 @@ func getServices(c *gin.Context, store *storage.Storage) {
 		}
 	}
 
-	lib.Respond(c, 200, "service-list", gin.H{
+	utils.Respond(c, 200, "service-list", gin.H{
 		"services": response,
 	})
 }
@@ -67,7 +67,7 @@ func searchServices(c *gin.Context, store *storage.Storage) {
 
 	rows, err := store.SearchServices(c.Request.Context(), q)
 	if err != nil {
-		lib.Respond(c, 500, "error", gin.H{"error": "Failed to search services"})
+		utils.Respond(c, 500, "error", gin.H{"error": "Failed to search services"})
 		return
 	}
 
@@ -84,7 +84,7 @@ func searchServices(c *gin.Context, store *storage.Storage) {
 		}
 	}
 
-	lib.Respond(c, 200, "service-list", gin.H{
+	utils.Respond(c, 200, "service-list", gin.H{
 		"services": response,
 	})
 }
@@ -95,7 +95,7 @@ func getService(c *gin.Context, store *storage.Storage) {
 
 	service, err := store.GetServiceBySlug(c.Request.Context(), slug)
 	if err != nil {
-		lib.Respond(c, 404, "service-not-found", gin.H{
+		utils.Respond(c, 404, "service-not-found", gin.H{
 			"error": "Service not found",
 		})
 		return
@@ -114,7 +114,7 @@ func getService(c *gin.Context, store *storage.Storage) {
 		RecentReports: count,
 	}
 
-	lib.Respond(c, 200, "service-card", gin.H{
+	utils.Respond(c, 200, "service-card", gin.H{
 		"service": response,
 	})
 }
