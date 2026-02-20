@@ -8,9 +8,13 @@ import (
 	"github.com/novembersoftware/aretheyup/config"
 	"github.com/novembersoftware/aretheyup/services"
 	"github.com/novembersoftware/aretheyup/storage"
+	"github.com/novembersoftware/aretheyup/utils"
 	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
+	"gorm.io/gorm"
 )
+
+var flags utils.Flags
 
 func init() {
 	_ = godotenv.Load(".env.local")
@@ -23,6 +27,8 @@ func init() {
 		zerolog.SetGlobalLevel(zerolog.DebugLevel)
 		log.Logger = zerolog.New(zerolog.ConsoleWriter{Out: os.Stderr}).With().Timestamp().Caller().Logger()
 	}
+
+	flags = utils.ParseFlags()
 }
 
 func main() {
@@ -35,13 +41,30 @@ func main() {
 		log.Fatal().Err(err).Msg("Failed to migrate database")
 	}
 
-	// services.Seed(db, 50, true)
+	store := storage.New(db)
 
-	_, err = services.NewRedis(config.C.RedisURL)
+	switch flags.Mode {
+	case utils.ModeAPI:
+		apiMode(store)
+	case utils.ModeManage:
+		manageMode(store)
+	case utils.ModeSeed:
+		seedMode(db)
+	}
+}
+
+func apiMode(store *storage.Storage) {
+	_, err := services.NewRedis(config.C.RedisURL)
 	if err != nil {
 		log.Fatal().Err(err).Msg("Failed to connect to Redis")
 	}
-
-	store := storage.New(db)
 	api.Start(store)
+}
+
+func manageMode(_ *storage.Storage) {
+	// soon
+}
+
+func seedMode(db *gorm.DB) {
+	services.SeedDB(db, flags.SeedCount, flags.SeedClear)
 }
