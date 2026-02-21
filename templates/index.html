@@ -6,43 +6,45 @@
 <body>
 	{{ template "navbar" . }}
 	<main class="flex-1">
-		<div class="mx-auto px-4 pt-16 pb-12">
-			<div class="text-start mb-14 mx-auto max-w-2xl">
-				<h1 class="text-3xl font-bold tracking-tight mb-2">
-					Real-time outage detection
-				</h1>
-				<p class="text-sm text-base-content/50 mb-6">
-					Check if a service is actually down, or if it's just
-					you.
-				</p>
-				<div class="relative items-center">
-					<input id="q" name="q"
-						class="input w-full bg-base-200 border-base-content/10 font-mono text-sm focus:outline-none focus:ring placeholder:text-base-content/30"
-						placeholder="Search for a service..." autocomplete="off" spellcheck="false"
-						hx-get="/api/services/search" hx-trigger="load, input changed delay:300ms"
-						hx-target="#service-list" hx-swap="innerHTML" hx-indicator="#search-spinner" />
-					<span id="search-spinner" class="htmx-indicator absolute right-3 top-1/2 -translate-y-1/2">
-						<span class="loading loading-spinner loading-xs text-base-content/40"></span>
-					</span>
+		<div class="relative mx-auto px-4 pt-14 pb-14 max-w-7xl">
+			<div
+				class="absolute inset-x-0 top-10 -z-10 mx-auto h-80 max-w-6xl rounded-full bg-gradient-to-r from-success/10 via-warning/5 to-error/10 blur-3xl">
+			</div>
+
+			<div class="rounded-3xl border border-base-content/10 bg-base-100/85 backdrop-blur p-6 sm:p-8 mb-8">
+				<div class="grid gap-6 lg:grid-cols-[1.2fr_0.8fr] lg:items-end">
+					<div>
+						<h1 class="text-3xl sm:text-4xl font-bold tracking-tight text-base-content mb-3">Is it down for
+							everyone or just you?</h1>
+						<p class="text-sm sm:text-base text-base-content/65 max-w-2xl">Monitor live user reports and
+							detect service disruptions in real time.</p>
+					</div>
+				</div>
+
+				<div class="mt-6">
+					<div class="relative items-center">
+						<input id="q" name="q"
+							class="input h-12 w-full rounded-xl bg-base-200/60 border-base-content/10 font-mono text-sm placeholder:text-base-content/35"
+							placeholder="Search for a service..." autocomplete="off" spellcheck="false"
+							hx-get="/api/services/search" hx-trigger="load, input changed delay:300ms"
+							hx-target="#service-list" hx-swap="innerHTML" hx-indicator="#search-spinner" />
+						<span id="search-spinner" class="htmx-indicator absolute right-3 top-1/2 -translate-y-1/2">
+							<span class="loading loading-spinner loading-xs text-base-content/40"></span>
+						</span>
+					</div>
 				</div>
 			</div>
 
 			<div id="service-list" hx-get="/api/services"
-				hx-trigger="every 10s [document.getElementById('q').value === '' && !document.hidden], every 60s [document.getElementById('q').value === '' && document.hidden]"
+				hx-trigger="load, every 10s [document.getElementById('q').value === '' && !document.hidden], every 60s [document.getElementById('q').value === '' && document.hidden]"
 				hx-swap="innerHTML">
-				<div class="animate-pulse space-y-3 max-w-4xl mx-auto grid grid-cols-3 gap-3">
-					<div class="h-24 bg-base-200 rounded"></div>
-					<div class="h-24 bg-base-200 rounded"></div>
-					<div class="h-24 bg-base-200 rounded"></div>
-					<div class="h-24 bg-base-200 rounded"></div>
-					<div class="h-24 bg-base-200 rounded"></div>
-					<div class="h-24 bg-base-200 rounded"></div>
-					<div class="h-24 bg-base-200 rounded"></div>
-					<div class="h-24 bg-base-200 rounded"></div>
-					<div class="h-24 bg-base-200 rounded"></div>
-					<div class="h-24 bg-base-200 rounded"></div>
-					<div class="h-24 bg-base-200 rounded"></div>
-					<div class="h-24 bg-base-200 rounded"></div>
+				<div class="animate-pulse grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-4">
+					<div class="h-28 bg-base-200/70 rounded-2xl"></div>
+					<div class="h-28 bg-base-200/70 rounded-2xl"></div>
+					<div class="h-28 bg-base-200/70 rounded-2xl"></div>
+					<div class="h-28 bg-base-200/70 rounded-2xl"></div>
+					<div class="h-28 bg-base-200/70 rounded-2xl"></div>
+					<div class="h-28 bg-base-200/70 rounded-2xl"></div>
 				</div>
 			</div>
 		</div>

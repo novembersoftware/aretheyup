@@ -1,42 +1,46 @@
 {{ define "service-list" }}
 
 {{ if not .services }}
-<p class="text-sm text-base-content/40 text-center py-8">No services found.</p>
+<div class="rounded-2xl border border-base-content/10 bg-base-100/80 p-10 text-center">
+	<p class="text-sm text-base-content/60">No services found for your search.</p>
+	<p class="text-xs text-base-content/40 mt-2">Try a broader name or remove filters.</p>
+</div>
 {{ else }}
-<div class="grid grid-cols-3 gap-3 max-w-4xl mx-auto">
+<div class="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-4">
 	{{ range .services }}
 	<a href="/{{ .Slug }}" {{ if eq .Status "Issues Detected" }}
-		class="group flex flex-col gap-3 p-4 rounded-xl bg-error/10 border border-error/20 hover:bg-error/15 transition-all"
+		class="group rounded-2xl border border-error/30 bg-error/10 hover:bg-error/15 transition-all duration-200 p-4"
 		{{ else }}
-		class="group flex flex-col gap-3 p-4 rounded-xl bg-base-200 border border-base-content/10 hover:bg-base-300 transition-all"
+		class="group rounded-2xl border border-base-content/10 bg-base-100/85 hover:bg-base-100 transition-all duration-200 p-4"
 		{{ end }}>
-		<div class="flex items-start justify-between gap-2">
-			<div class="flex items-center gap-2.5 min-w-0">
+		<div class="flex items-start justify-between gap-3">
+			<div class="flex items-center gap-3 min-w-0">
 				<img src="https://www.google.com/s2/favicons?domain={{ .URL }}&sz=32" alt=""
-					class="w-6 h-6 shrink-0 rounded" loading="lazy" />
-				<span
-					class="font-medium text-sm text-base-content/90 group-hover:text-base-content transition-colors truncate leading-tight">{{
-					.Name }}</span>
+					class="w-8 h-8 shrink-0 rounded-lg border border-base-content/10" loading="lazy" />
+				<div class="min-w-0">
+					<p class="font-semibold text-sm sm:text-base text-base-content/95 group-hover:text-base-content truncate leading-tight">{{ .Name }}</p>
+					<p class="text-xs text-base-content/45 truncate mt-0.5">{{ .URL }}</p>
+				</div>
 			</div>
 			{{ if eq .Status "Issues Detected" }}
-			<span class="w-2 h-2 rounded-full bg-error shrink-0 mt-1 opacity-80"></span>
+			<span class="badge badge-error badge-sm shrink-0">Issues</span>
 			{{ else }}
-			<span class="w-2 h-2 rounded-full bg-success shrink-0 mt-1 opacity-80"></span>
+			<span class="badge badge-success badge-sm shrink-0">Operational</span>
 			{{ end }}
 		</div>
-		<div class="flex items-center justify-between">
-			<span class="text-xs text-base-content/40 capitalize px-2 py-0.5 rounded-full bg-base-content/5">{{
-				.Category }}</span>
-			{{ if gt .RecentReports 0 }}
-			<span class="text-xs text-base-content/50">{{ .RecentReports }} reports</span>
-			{{ end }}
+
+		<div class="mt-4 pt-3 border-t border-base-content/10 flex items-center justify-between">
+			<span class="text-xs text-base-content/50 capitalize px-2 py-1 rounded-full bg-base-content/5">{{ .Category }}</span>
+			<div class="text-xs font-mono {{ if gt .RecentReports 0 }}text-warning{{ else }}text-base-content/45{{ end }}">
+				{{ if gt .RecentReports 0 }}{{ .RecentReports }} reports / 30m{{ else }}quiet{{ end }}
+			</div>
 		</div>
 	</a>
 	{{ end }}
 </div>
 
-<p class="text-xs text-base-content/30 text-center mt-6">
-	Can't find what you're looking for? Use the search above.
+<p class="text-xs text-base-content/35 text-center mt-6">
+	Live ranking updates every 10 seconds while visible.
 </p>
 {{ end }}
 
