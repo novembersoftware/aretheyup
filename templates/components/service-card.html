@@ -10,14 +10,15 @@
 				{{ end }}
 				<div class="flex items-center gap-3">
 					{{ if .reported }}
-					<span class="inline-flex items-center gap-1.5 rounded-md bg-success/10 px-2 py-0.5 text-xs font-medium text-success">
+					<span
+						class="inline-flex items-center gap-1.5 rounded-md bg-success/10 px-2 py-0.5 text-xs font-medium text-success">
 						{{ lucide "badge-check" (dict "size" 14) }} Report received
 					</span>
 					{{ end }}
 					<button
 						class="btn btn-sm sm:btn-md bg-base-100 text-base-content border-base-content/20 hover:bg-base-200"
 						hx-post="/api/service/{{ .service.Slug }}/report" hx-target="#service-card" hx-swap="innerHTML"
-						hx-disabled-elt="this">
+						hx-disabled-elt="this" data-visitors-event="user-report">
 						I'm having issues
 					</button>
 				</div>
@@ -77,13 +78,15 @@
 				<div class="rounded-xl border border-base-content/10 bg-base-200/40 p-3">
 					<div class="flex items-center justify-between text-sm">
 						<div class="flex items-center gap-2">
-							<span class="w-2.5 h-2.5 rounded-full {{ if ge .Percent 40 }}bg-error{{ else if ge .Percent 20 }}bg-warning{{ else }}bg-success{{ end }}"></span>
+							<span
+								class="w-2.5 h-2.5 rounded-full {{ if ge .Percent 40 }}bg-error{{ else if ge .Percent 20 }}bg-warning{{ else }}bg-success{{ end }}"></span>
 							<span class="font-medium">{{ .Region }}</span>
 						</div>
 						<span class="font-mono text-base-content/70">{{ .Count }} reports</span>
 					</div>
 					<div class="mt-2 h-1.5 w-full bg-base-300 rounded-full overflow-hidden">
-						<div class="h-full {{ if ge .Percent 40 }}bg-error{{ else if ge .Percent 20 }}bg-warning{{ else }}bg-success{{ end }}" style="width: {{ .Percent }}%"></div>
+						<div class="h-full {{ if ge .Percent 40 }}bg-error{{ else if ge .Percent 20 }}bg-warning{{ else }}bg-success{{ end }}"
+							style="width: {{ .Percent }}%"></div>
 					</div>
 				</div>
 				{{ end }}
@@ -102,7 +105,8 @@
 				<div class="h-full min-w-[36rem] flex items-end gap-1.5">
 					{{ range .service.ReportBuckets }}
 					<div class="group flex-1 h-full flex items-end" title="{{ .Label }} - {{ .Count }} reports">
-						<div class="w-full rounded-sm {{ if eq .Level "high" }}bg-error{{ else if eq .Level "elevated" }}bg-warning{{ else }}bg-success/70{{ end }}" style="height: {{ .HeightPct }}%"></div>
+						<div class="w-full rounded-sm {{ if eq .Level " high" }}bg-error{{ else if eq .Level "elevated"
+							}}bg-warning{{ else }}bg-success/70{{ end }}" style="height: {{ .HeightPct }}%"></div>
 					</div>
 					{{ end }}
 				</div>
@@ -119,7 +123,8 @@
 
 			<div class="grid grid-cols-[repeat(30,minmax(0,1fr))] gap-1">
 				{{ range .service.UptimeDays }}
-				<div title="{{ .Label }}" class="h-7 rounded-sm {{ if eq .Level "outage" }}bg-error{{ else if eq .Level "elevated" }}bg-warning{{ else }}bg-success{{ end }}"></div>
+				<div title="{{ .Label }}" class="h-7 rounded-sm {{ if eq .Level " outage" }}bg-error{{ else if eq
+					.Level "elevated" }}bg-warning{{ else }}bg-success{{ end }}"></div>
 				{{ end }}
 			</div>
 
