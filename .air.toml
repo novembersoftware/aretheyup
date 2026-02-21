@@ -50,7 +50,7 @@ tmp_dir = "tmp"
 [proxy]
   app_port = 8080
   app_start_timeout = 0
-  enabled = true
+  enabled = false
   proxy_port = 3000
 
 [screen]
