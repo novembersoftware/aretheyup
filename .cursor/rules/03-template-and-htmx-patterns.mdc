@@ -1,0 +1,35 @@
+---
+description: HTMX and template implementation patterns
+globs:
+    - "templates/**/*.html"
+    - "api/routes/*.go"
+    - "utils/htmx.go"
+---
+
+# Template and HTMX Patterns
+
+## Rendering model
+
+- full page routes render shells
+- HTMX fetches component fragments into page targets
+- API handlers should return components for HTML mode and plain data for JSON mode
+
+## Polling behavior
+
+Keep visibility-aware polling behavior
+
+- poll every 10s while tab is visible
+- poll every 60s while tab is hidden
+
+Do not switch to websocket-first behavior unless explicitly requested
+
+## Error handling pattern
+
+- use server-rendered error fragment `templates/components/error.html`
+- keep `htmx-config` response handling set to swap on 4xx and 5xx so errors render in place
+
+## UI language
+
+- status labels should stay consistent with current model
+    - `Operational`
+    - `Issues Detected`

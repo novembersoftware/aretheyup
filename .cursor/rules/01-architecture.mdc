@@ -1,0 +1,53 @@
+---
+description: Package and runtime architecture
+globs:
+    - "**/*.go"
+---
+
+# Architecture Overview
+
+## Runtime modes
+
+- `api` mode
+    - starts Gin HTTP server
+    - starts baseline refresh worker
+    - starts incident tracking worker
+- `manage` mode
+    - starts Bubble Tea TUI for service and probe config management
+- `seed` mode
+    - inserts fake services and user reports for development
+
+## Main layers
+
+- `api/`
+    - route handlers and server wiring
+    - returns HTML fragments for HTMX and JSON when `Accept: application/json`
+- `storage/`
+    - the data access layer
+    - all SQL and cache access should live here
+    - handlers and workers should call storage methods, not write ad hoc SQL
+- `algorithm/`
+    - status decision logic and thresholds
+    - single source of truth for service status classification
+- `workers/`
+    - background loops that maintain derived state
+    - hourly baseline refresh
+    - minutely incident open/close reconciliation
+- `services/`
+    - infrastructure setup helpers for Postgres and Redis
+- `structs/`
+    - GORM schema and config structs
+- `templates/`
+    - full pages plus HTMX components
+
+## Data stores
+
+- Postgres is source of truth for services, reports, baselines, probes, incidents
+- Redis is used as short TTL cache for expensive list reads
+
+## Important architecture rules
+
+- keep status logic in `algorithm.DetermineStatus`
+- keep report window usage consistent with `algorithm.ReportWindow`
+- keep list endpoints batched to avoid N+1 lookups
+- treat probe data as optional so the app works before probe runner exists

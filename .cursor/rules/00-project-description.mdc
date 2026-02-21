@@ -1,0 +1,33 @@
+---
+description: Product context for aretheyup
+globs:
+    - "**/*"
+---
+
+# aretheyup Project Description
+
+aretheyup is a real-time outage detector for internet services
+
+The app decides whether a service is `Operational` or `Issues Detected` using:
+
+- crowdsourced user reports in a rolling 30 minute window
+- optional probe results when probe data is available
+- historical baselines by hour of week to avoid false positives
+
+The product is server-rendered and HTMX-driven
+
+- home page shows a live list of services
+- service page shows one live service card
+- both pages auto-refresh on a timer
+
+Core product goals:
+
+- fast and simple status checks for end users
+- minimal client-side complexity
+- graceful behavior during cold start and partial data availability
+
+Non-goals right now:
+
+- websocket-first architecture
+- heavy SPA client logic
+- hard dependency on probe infrastructure

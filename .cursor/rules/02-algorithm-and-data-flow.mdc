@@ -1,0 +1,55 @@
+---
+description: Status algorithm and request flow constraints
+globs:
+    - "api/routes/*.go"
+    - "algorithm/*.go"
+    - "storage/*.go"
+    - "workers/*.go"
+---
+
+# Algorithm and Data Flow
+
+## Status algorithm
+
+Use `algorithm.DetermineStatus` as the single status decision path
+
+Expected inputs:
+
+- recent user report count
+- report baseline for current hour-of-week bucket
+- recent probe totals and failures
+- probe baseline when available
+
+Current behavior includes:
+
+- cold start guardrails for low baseline history
+- z-score based report anomaly checks for mature baselines
+- probe failure-rate checks with fallback thresholds
+
+## API request flow
+
+- `/api/services` and `/api/services/search`
+    - fetch base service rows
+    - batch load baselines for current hour bucket
+    - batch load recent probe stats
+    - compute status per row
+- `/api/service/:slug`
+    - fetch one service
+    - fetch report count, baseline, probe stats
+    - compute status for detail card
+
+## Worker flow
+
+- baseline worker
+    - recomputes baseline buckets periodically
+- incident worker
+    - recomputes current status for active services
+    - opens incident on transition to issues
+    - resolves incident on transition to operational
+
+## Probe optionality requirement
+
+Do not make probe data mandatory
+
+- missing probe rows or probe schema availability should not break status pages
+- fall back to report-only signals when probe data is missing
