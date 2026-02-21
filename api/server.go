@@ -2,6 +2,7 @@ package api
 
 import (
 	"html/template"
+	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/kaugesaar/lucide-go"
@@ -20,6 +21,7 @@ func Start(store *storage.Storage) {
 
 	r.Use(gin.Recovery())
 	r.Use(middleware.Logger)
+	r.Use(getRateLimiter("global", store))
 
 	templ := template.Must(template.New("").Funcs(lucide.FuncMap()).ParseGlob("templates/*.html"))
 	templ = template.Must(templ.ParseGlob("templates/components/*.html"))
@@ -27,8 +29,8 @@ func Start(store *storage.Storage) {
 
 	r.Static("/static", "./static")
 
-	routes.SetupPageRoutes(r)
-	routes.SetupAPIRoutes(r, store)
+	routes.SetupPageRoutes(r, getRateLimiter("public", store))
+	routes.SetupAPIRoutes(r, store, getRateLimiter("public", store), getRateLimiter("report", store))
 
 	run(r)
 }
@@ -38,5 +40,30 @@ func run(r *gin.Engine) {
 	err := r.Run(":" + config.C.APIPort)
 	if err != nil {
 		log.Fatal().Err(err).Msg("Failed to start server")
+	}
+}
+
+func getRateLimiter(group string, store *storage.Storage) gin.HandlerFunc {
+	switch group {
+	case "global":
+		return middleware.GlobalRateLimit(
+			store.Redis(),
+			config.C.GlobalRateLimitMaxRequests,
+			time.Duration(config.C.GlobalRateLimitWindowSeconds)*time.Second,
+		)
+	case "public":
+		return middleware.PublicRouteRateLimit(
+			store.Redis(),
+			config.C.PublicRateLimitMaxRequests,
+			time.Duration(config.C.PublicRateLimitWindowSeconds)*time.Second,
+		)
+	case "report":
+		return middleware.ReportRouteRateLimit(
+			store.Redis(),
+			config.C.ReportRateLimitMaxRequests,
+			time.Duration(config.C.ReportRateLimitWindowSeconds)*time.Second,
+		)
+	default:
+		panic("invalid rate limiter group: " + group)
 	}
 }

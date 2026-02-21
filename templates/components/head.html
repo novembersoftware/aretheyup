@@ -6,6 +6,83 @@
 	<meta name="htmx-config"
 		content='{"responseHandling":[{"code":"204","swap":false},{"code":"[23]..","swap":true},{"code":"404","swap":true},{"code":"[45]..","swap":true,"error":true}]}' />
 	<title>{{ .PageTitle }} {{ if .PageTitle }} | {{ end }} Are they up?</title>
+	<script>
+		(function () {
+			function ensureToastContainer() {
+				var existing = document.getElementById("app-toast-container");
+				if (existing) {
+					return existing;
+				}
+
+				var container = document.createElement("div");
+				container.id = "app-toast-container";
+				container.className = "toast toast-top toast-center sm:toast-end z-[100] px-2 sm:px-0";
+				document.body.appendChild(container);
+				return container;
+			}
+
+			function showToast(message) {
+				var container = ensureToastContainer();
+				var toast = document.createElement("div");
+				toast.className = "alert bg-base-100/95 text-base-content border border-base-content/15 shadow-xl w-fit max-w-[22rem]";
+
+				var text = document.createElement("span");
+				text.className = "text-sm leading-snug";
+				text.textContent = message;
+				toast.appendChild(text);
+
+				container.appendChild(toast);
+
+				window.setTimeout(function () {
+					toast.classList.add("opacity-0", "translate-y-1", "transition-all", "duration-300");
+					window.setTimeout(function () {
+						toast.remove();
+					}, 300);
+				}, 4200);
+			}
+
+			function formatRetryAfter(seconds) {
+				if (!seconds || seconds < 60) {
+					return "less than a minute";
+				}
+
+				var minutes = Math.ceil(seconds / 60);
+				if (minutes === 1) {
+					return "about 1 minute";
+				}
+
+				return "about " + minutes + " minutes";
+			}
+
+			function markReportButtonAsReported() {
+				var reportButton = document.querySelector('[data-report-button="true"]');
+				if (!reportButton) {
+					return;
+				}
+
+				reportButton.setAttribute("disabled", "disabled");
+				reportButton.setAttribute("aria-disabled", "true");
+				reportButton.textContent = "Already reported";
+				reportButton.removeAttribute("hx-post");
+				reportButton.removeAttribute("hx-target");
+				reportButton.removeAttribute("hx-swap");
+				reportButton.removeAttribute("hx-disabled-elt");
+				reportButton.removeAttribute("data-visitors-event");
+				reportButton.classList.remove("bg-base-100", "hover:bg-base-200", "text-base-content", "border-base-content/20");
+				reportButton.classList.add("bg-base-200", "text-base-content/65", "border-base-content/10", "cursor-not-allowed");
+			}
+
+			document.addEventListener("DOMContentLoaded", function () {
+				document.body.addEventListener("report-rate-limited", function (event) {
+					var detail = event && event.detail ? event.detail : {};
+					var baseMessage = detail.message || "We already received your report for this service.";
+					var retryText = formatRetryAfter(detail.retry_after_seconds);
+					markReportButtonAsReported();
+					showToast(baseMessage + " Try again in " + retryText + ".");
+				});
+			});
+		})();
+	</script>
 
 	<script src="https://cdn.visitors.now/v.js" data-token="baaab868-15c6-41f1-b11c-2346f322605b" defer></script>
 	<link rel="icon" href="/static/favicon.ico" />

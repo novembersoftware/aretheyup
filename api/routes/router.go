@@ -5,15 +5,15 @@ import (
 	"github.com/novembersoftware/aretheyup/storage"
 )
 
-func SetupPageRoutes(r *gin.Engine) {
-	r.GET("/", getIndexPage)
-	r.GET("/:slug", getServicePage)
+func SetupPageRoutes(r *gin.Engine, publicRouteLimiter gin.HandlerFunc) {
+	r.GET("/", publicRouteLimiter, getIndexPage)
+	r.GET("/:slug", publicRouteLimiter, getServicePage)
 }
 
-func SetupAPIRoutes(r *gin.Engine, store *storage.Storage) {
+func SetupAPIRoutes(r *gin.Engine, store *storage.Storage, publicRouteLimiter, reportRouteLimiter gin.HandlerFunc) {
 	g := r.Group("/api")
-	g.GET("/services", func(c *gin.Context) { getServices(c, store) })
-	g.GET("/services/search", func(c *gin.Context) { searchServices(c, store) })
-	g.GET("/service/:slug", func(c *gin.Context) { getService(c, store) })
-	g.POST("/service/:slug/report", func(c *gin.Context) { createServiceReport(c, store) })
+	g.GET("/services", publicRouteLimiter, func(c *gin.Context) { getServices(c, store) })
+	g.GET("/services/search", publicRouteLimiter, func(c *gin.Context) { searchServices(c, store) })
+	g.GET("/service/:slug", publicRouteLimiter, func(c *gin.Context) { getService(c, store) })
+	g.POST("/service/:slug/report", reportRouteLimiter, func(c *gin.Context) { createServiceReport(c, store) })
 }

@@ -25,6 +25,10 @@ type Storage struct {
 	redis *r.Client
 }
 
+func (s *Storage) Redis() *r.Client {
+	return s.redis
+}
+
 // New returns a Storage backed by the provided Postgres connection
 func New(db *gorm.DB, redis *r.Client) *Storage {
 	return &Storage{db: db, redis: redis}

@@ -11,6 +11,8 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/novembersoftware/aretheyup/algorithm"
+	"github.com/novembersoftware/aretheyup/api/middleware"
+	"github.com/novembersoftware/aretheyup/config"
 	"github.com/novembersoftware/aretheyup/storage"
 	"github.com/novembersoftware/aretheyup/structs"
 	"github.com/novembersoftware/aretheyup/utils"
@@ -54,6 +56,8 @@ type ServiceDetailResponse struct {
 	Category            string                   `json:"category"`
 	Status              string                   `json:"status"`
 	RecentReports       int64                    `json:"recent_reports"`
+	CanReport           bool                     `json:"can_report"`
+	ReportRetryAfterSec int64                    `json:"report_retry_after_sec"`
 	ReportWindowLabel   string                   `json:"report_window_label"`
 	BaselineMeanReports float64                  `json:"baseline_mean_reports"`
 	WindowUsagePercent  int                      `json:"window_usage_percent"`
@@ -169,6 +173,15 @@ func respondServiceCard(c *gin.Context, store *storage.Storage, service *structs
 	ctx := c.Request.Context()
 	now := time.Now().UTC()
 
+	rateLimitState, err := middleware.GetReportRateLimitState(
+		c,
+		store.Redis(),
+		time.Duration(config.C.ReportRateLimitWindowSeconds)*time.Second,
+	)
+	if err != nil {
+		rateLimitState = middleware.ReportRateLimitState{CanReport: true}
+	}
+
 	reportWindowStart := now.Add(-algorithm.ReportWindow)
 	recentReports, err := store.CountRecentReports(ctx, service.ID, reportWindowStart)
 	if err != nil {
@@ -246,6 +259,8 @@ func respondServiceCard(c *gin.Context, store *storage.Storage, service *structs
 		Category:            service.Category,
 		Status:              string(status),
 		RecentReports:       recentReports,
+		CanReport:           rateLimitState.CanReport,
+		ReportRetryAfterSec: rateLimitState.RetryAfterSeconds,
 		ReportWindowLabel:   fmt.Sprintf("last %d min", int(algorithm.ReportWindow.Minutes())),
 		BaselineMeanReports: baselineMean,
 		WindowUsagePercent:  windowUsage,
