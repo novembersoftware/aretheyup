@@ -61,6 +61,77 @@ docker compose -f docker-compose.dev.yml down
 - PostgreSQL
 - Redis
 
+## Status Algorithm
+
+The app uses a baseline-driven algorithm to determine the status of a service.
+
+### TL;DR
+
+- Services are either `Operational` or `Issues Detected`
+- We look at user reports in a rolling 30-minute window
+- We compare that window to a historical baseline for the same day/hour bucket
+- We also look at recent probe failures (if probe results exist)
+- If either signal looks bad, status becomes `Issues Detected`
+
+### Baseline model
+
+Baselines are stored in `service_baselines` (GORM struct: `ServiceBaseline`).
+
+Each row is keyed by:
+
+- `service_id`
+- `hour_of_week` (0..167, UTC)
+
+For each bucket, we store:
+
+- `mean_reports`
+- `std_dev_reports`
+- `sample_count` (how many distinct weeks contributed)
+- `probe_failure_rate`
+- `probe_failure_samples`
+
+### How baselines are refreshed
+
+- A background worker (`workers/baseline.go`) runs on API startup
+- It refreshes immediately, then every hour
+- It recomputes stats per active service
+- It uses up to 6 months of history
+- User-report baseline is built from 30-minute windows (including zero-report windows)
+
+### User-report signal
+
+Implemented in `algorithm/status.go`:
+
+1. **Cold start path** (not enough history)
+    - If `sample_count < 4`, we use a hard threshold
+    - Requires at least 15 reports in the 30-minute window
+2. **Mature baseline path**
+    - Compute `z = (current - mean) / max(stdDev, 1)`
+    - Trigger only when both are true:
+        - `z >= 3.0`
+        - `current_reports >= 3`
+
+This setup is designed to avoid the "baseline=0, one report => incident" problem.
+
+### Probe signal
+
+Also in `algorithm/status.go`:
+
+- Look at the most recent 5 probe results
+- If fewer than 3 results exist, ignore probe signal
+- If probe baseline is immature (`probe_failure_samples < 20`):
+    - trigger when failure rate >= 0.8
+- If probe baseline is mature:
+    - trigger when failure rate is meaningfully above normal
+
+Note: this repo currently consumes probe _results_ for scoring, but does not yet include a probe runner that generates those results.
+
+### API integration
+
+- List/search/detail endpoints all use the same status decision flow
+- Baselines and probe stats are fetched in batches for list/search to avoid N+1 issues
+- Templates now show a single issue state label: `Issues Detected`
+
 ## Idea
 
 - Real-time SEO-friendly status pages for different websites

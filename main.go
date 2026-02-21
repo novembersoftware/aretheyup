@@ -10,6 +10,7 @@ import (
 	"github.com/novembersoftware/aretheyup/services"
 	"github.com/novembersoftware/aretheyup/storage"
 	"github.com/novembersoftware/aretheyup/utils"
+	"github.com/novembersoftware/aretheyup/workers"
 	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
 	"gorm.io/gorm"
@@ -59,6 +60,8 @@ func apiMode(store *storage.Storage) {
 	if err != nil {
 		log.Fatal().Err(err).Msg("Failed to connect to Redis")
 	}
+	// Keep algorithm baselines refreshed in the background while API is running.
+	workers.StartBaselineRefresher(store)
 	api.Start(store)
 }
 

@@ -7,10 +7,8 @@
 	{{ range .services }}
 	<a
 		href="/{{ .Slug }}"
-		{{ if eq .Status "Outage" }}
+		{{ if eq .Status "Issues Detected" }}
 		class="group flex flex-col gap-3 p-4 rounded-xl bg-error/10 border border-error/20 hover:bg-error/15 transition-all"
-		{{ else if eq .Status "Degraded" }}
-		class="group flex flex-col gap-3 p-4 rounded-xl bg-warning/10 border border-warning/20 hover:bg-warning/15 transition-all"
 		{{ else }}
 		class="group flex flex-col gap-3 p-4 rounded-xl bg-base-200 border border-base-300 hover:bg-base-300 transition-all"
 		{{ end }}
@@ -25,10 +23,8 @@
 				/>
 				<span class="font-medium text-sm text-base-content/90 group-hover:text-base-content transition-colors truncate leading-tight">{{ .Name }}</span>
 			</div>
-			{{ if eq .Status "Outage" }}
-			<span class="badge badge-error badge-sm shrink-0">Outage</span>
-			{{ else if eq .Status "Degraded" }}
-			<span class="badge badge-warning badge-sm shrink-0">Degraded</span>
+			{{ if eq .Status "Issues Detected" }}
+			<span class="badge badge-error badge-sm shrink-0">Issues Detected</span>
 			{{ else }}
 			<span class="w-2 h-2 rounded-full bg-success shrink-0 mt-1 opacity-80"></span>
 			{{ end }}

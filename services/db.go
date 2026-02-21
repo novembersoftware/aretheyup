@@ -34,6 +34,7 @@ func MigrateDB(db *gorm.DB) error {
 		&structs.UserReport{},
 		&structs.ProbeResult{},
 		&structs.ProbeConfig{},
+		&structs.ServiceBaseline{},
 		&structs.Incident{},
 	)
 	if err != nil {

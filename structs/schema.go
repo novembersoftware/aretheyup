@@ -14,10 +14,26 @@ type Service struct {
 	Active       bool   `gorm:"not null;default:true"`
 	UserReports  []UserReport
 	ProbeResults []ProbeResult
-	Incidents    []Incident
-	ProbeConfig  ProbeConfig
-	CreatedAt    time.Time
-	UpdatedAt    time.Time
+	// One baseline row per hour-of-week bucket for this service
+	Baselines   []ServiceBaseline
+	Incidents   []Incident
+	ProbeConfig ProbeConfig
+	CreatedAt   time.Time
+	UpdatedAt   time.Time
+}
+
+type ServiceBaseline struct {
+	ID        uint `gorm:"primaryKey"`
+	ServiceID uint `gorm:"not null;uniqueIndex:idx_service_hour"`
+	// 0..167 where 0 = Sunday 00:00 UTC
+	HourOfWeek          int `gorm:"not null;uniqueIndex:idx_service_hour"`
+	MeanReports         float64
+	StdDevReports       float64
+	SampleCount         int
+	ProbeFailureRate    float64
+	ProbeFailureSamples int
+	CreatedAt           time.Time
+	UpdatedAt           time.Time
 }
 
 type UserReport struct {
@@ -26,7 +42,7 @@ type UserReport struct {
 	IPAddress   string `gorm:"not null"`
 	UserAgent   string `gorm:"not null"`
 	Fingerprint string `gorm:"not null"`
-	Region      string // inferred from IP, i.e. us-east, us-west, etc.
+	Region      string // inferred from IP, i.e. us-east, us-west, etc
 	CreatedAt   time.Time
 	UpdatedAt   time.Time
 }

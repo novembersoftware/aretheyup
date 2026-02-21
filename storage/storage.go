@@ -4,6 +4,7 @@ import (
 	"context"
 	"time"
 
+	"github.com/novembersoftware/aretheyup/algorithm"
 	"github.com/novembersoftware/aretheyup/structs"
 	"gorm.io/gorm"
 )
@@ -33,7 +34,8 @@ type ServiceRow struct {
 // ListServices returns all services ordered by recent report count (descending)
 func (s *Storage) ListServices(ctx context.Context) ([]ServiceRow, error) {
 	var rows []ServiceRow
-	tenMinutesAgo := time.Now().Add(-10 * time.Minute)
+	// Keep this in sync with the algorithm's report window.
+	reportWindowStart := time.Now().Add(-algorithm.ReportWindow)
 	result := s.db.WithContext(ctx).Raw(`
 		SELECT s.id, s.slug, s.name, s.homepage_url, s.category,
 		       COUNT(ur.id) AS recent_report_count
@@ -42,7 +44,7 @@ func (s *Storage) ListServices(ctx context.Context) ([]ServiceRow, error) {
 		GROUP BY s.id
 		ORDER BY recent_report_count DESC
 		LIMIT 48
-	`, tenMinutesAgo).Scan(&rows)
+	`, reportWindowStart).Scan(&rows)
 	return rows, result.Error
 }
 
@@ -50,7 +52,8 @@ func (s *Storage) ListServices(ctx context.Context) ([]ServiceRow, error) {
 // ordered by recent report count (descending)
 func (s *Storage) SearchServices(ctx context.Context, query string) ([]ServiceRow, error) {
 	var rows []ServiceRow
-	tenMinutesAgo := time.Now().Add(-10 * time.Minute)
+	// Same window as list/detail status checks.
+	reportWindowStart := time.Now().Add(-algorithm.ReportWindow)
 	result := s.db.WithContext(ctx).Raw(`
 		SELECT s.id, s.slug, s.name, s.homepage_url, s.category,
 		       COUNT(ur.id) AS recent_report_count
@@ -60,7 +63,7 @@ func (s *Storage) SearchServices(ctx context.Context, query string) ([]ServiceRo
 		GROUP BY s.id
 		ORDER BY recent_report_count DESC
 		LIMIT 48
-	`, tenMinutesAgo, "%"+query+"%").Scan(&rows)
+	`, reportWindowStart, "%"+query+"%").Scan(&rows)
 	return rows, result.Error
 }
 
