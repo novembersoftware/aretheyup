@@ -19,7 +19,7 @@
 
 				<div
 					hx-get="/api/service/{{ .serviceSlug }}"
-					hx-trigger="load, every 10s"
+					hx-trigger="load, every 10s [!document.hidden], every 60s [document.hidden]"
 					hx-swap="innerHTML"
 				>
 					<div class="animate-pulse space-y-3">

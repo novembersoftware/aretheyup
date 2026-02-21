@@ -42,7 +42,7 @@
 				<div
 					id="service-list"
 					hx-get="/api/services"
-					hx-trigger="every 10s [document.getElementById('q').value === '']"
+					hx-trigger="every 10s [document.getElementById('q').value === '' && !document.hidden], every 60s [document.getElementById('q').value === '' && document.hidden]"
 					hx-swap="innerHTML"
 				>
 					<div class="animate-pulse space-y-3 max-w-4xl mx-auto">
