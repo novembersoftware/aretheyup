@@ -4,3 +4,4 @@
 .env.prod
 .env.dev
 tmp/
+issues.md
