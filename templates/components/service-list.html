@@ -18,7 +18,9 @@
 				<img src="https://www.google.com/s2/favicons?domain={{ .URL }}&sz=32" alt=""
 					class="w-8 h-8 shrink-0 rounded-lg border border-base-content/10" loading="lazy" />
 				<div class="min-w-0">
-					<p class="font-semibold text-sm sm:text-base text-base-content/95 group-hover:text-base-content truncate leading-tight">{{ .Name }}</p>
+					<p
+						class="font-semibold text-sm sm:text-base text-base-content/95 group-hover:text-base-content truncate leading-tight">
+						{{ .Name }}</p>
 					<p class="text-xs text-base-content/45 truncate mt-0.5">{{ .URL }}</p>
 				</div>
 			</div>
@@ -30,8 +32,10 @@
 		</div>
 
 		<div class="mt-4 pt-3 border-t border-base-content/10 flex items-center justify-between">
-			<span class="text-xs text-base-content/50 capitalize px-2 py-1 rounded-full bg-base-content/5">{{ .Category }}</span>
-			<div class="text-xs font-mono {{ if gt .RecentReports 0 }}text-warning{{ else }}text-base-content/45{{ end }}">
+			<span class="text-xs text-base-content/50 capitalize px-2 py-1 rounded-full bg-base-content/5">{{ .Category
+				}}</span>
+			<div
+				class="text-xs font-mono {{ if gt .RecentReports 0 }}text-warning{{ else }}text-base-content/45{{ end }}">
 				{{ if gt .RecentReports 0 }}{{ .RecentReports }} reports / 30m{{ else }}quiet{{ end }}
 			</div>
 		</div>
@@ -39,8 +43,8 @@
 	{{ end }}
 </div>
 
-<p class="text-xs text-base-content/35 text-center mt-6">
-	Live ranking updates every 10 seconds while visible.
+<p class="text-xs text-base-content/50 text-center mt-6">
+	Data updates every 10 seconds
 </p>
 {{ end }}
 
