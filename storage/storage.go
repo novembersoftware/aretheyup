@@ -105,6 +105,15 @@ func (s *Storage) CountRecentReports(ctx context.Context, serviceID uint, since 
 	return count, result.Error
 }
 
+func (s *Storage) CreateUserReport(ctx context.Context, report *structs.UserReport) error {
+	if err := s.db.WithContext(ctx).Create(report).Error; err != nil {
+		return err
+	}
+
+	s.invalidateServiceListCache(ctx)
+	return nil
+}
+
 // --- Manage TUI methods ---
 
 // ManageServiceRow is a row returned for the manage TUI list, including probe status.
@@ -215,5 +224,15 @@ func (s *Storage) setCachedServiceRows(ctx context.Context, key string, rows []S
 
 	if err := s.redis.Set(ctx, key, payload, listServicesCacheTTL).Err(); err != nil {
 		log.Debug().Err(err).Str("cache_key", key).Msg("Failed to write list cache")
+	}
+}
+
+func (s *Storage) invalidateServiceListCache(ctx context.Context) {
+	if s.redis == nil {
+		return
+	}
+
+	if err := s.redis.Del(ctx, listServicesCacheKey).Err(); err != nil {
+		log.Debug().Err(err).Str("cache_key", listServicesCacheKey).Msg("Failed to invalidate list cache")
 	}
 }

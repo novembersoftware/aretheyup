@@ -9,7 +9,13 @@
 		<div class="w-full">
 			<div class="flex items-center justify-between w-full">
 				<h1 class="text-2xl font-bold">{{ .service.Name }}</h1>
-				<button class="btn">
+				<button
+					class="btn"
+					hx-post="/api/service/{{ .service.Slug }}/report"
+					hx-target="#service-card"
+					hx-swap="innerHTML"
+					hx-disabled-elt="this"
+				>
 					<span class="text-sm">I'm having issues</span>
 				</button>
 			</div>

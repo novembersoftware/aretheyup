@@ -18,6 +18,7 @@
 				</div>
 
 				<div
+					id="service-card"
 					hx-get="/api/service/{{ .serviceSlug }}"
 					hx-trigger="load, every 10s [!document.hidden], every 60s [document.hidden]"
 					hx-swap="innerHTML"

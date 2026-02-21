@@ -1,6 +1,8 @@
 package routes
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -88,6 +90,43 @@ func getService(c *gin.Context, store *storage.Storage) {
 		return
 	}
 
+	respondServiceCard(c, store, service)
+}
+
+// POST /api/service/:slug/report
+func createServiceReport(c *gin.Context, store *storage.Storage) {
+	slug := c.Param("slug")
+
+	service, err := store.GetServiceBySlug(c.Request.Context(), slug)
+	if err != nil {
+		utils.Respond(c, 404, "service-not-found", gin.H{
+			"error": "Service not found",
+		})
+		return
+	}
+
+	userAgent := c.GetHeader("User-Agent")
+	if userAgent == "" {
+		userAgent = "unknown"
+	}
+
+	report := structs.UserReport{
+		ServiceID:   service.ID,
+		IPAddress:   c.ClientIP(),
+		UserAgent:   userAgent,
+		Fingerprint: requestFingerprint(c),
+	}
+
+	if err := store.CreateUserReport(c.Request.Context(), &report); err != nil {
+		utils.Respond(c, 500, "error", gin.H{"error": "Failed to create report"})
+		return
+	}
+
+	respondServiceCard(c, store, service)
+}
+
+func respondServiceCard(c *gin.Context, store *storage.Storage, service *structs.Service) {
+
 	reportWindowStart := time.Now().Add(-algorithm.ReportWindow)
 	recentReports, err := store.CountRecentReports(c.Request.Context(), service.ID, reportWindowStart)
 	if err != nil {
@@ -124,6 +163,16 @@ func getService(c *gin.Context, store *storage.Storage) {
 	utils.Respond(c, 200, "service-card", gin.H{
 		"service": response,
 	})
+}
+
+func requestFingerprint(c *gin.Context) string {
+	fingerprint := c.GetHeader("X-Fingerprint")
+	if fingerprint != "" {
+		return fingerprint
+	}
+
+	hash := sha256.Sum256([]byte(c.ClientIP() + "|" + c.GetHeader("User-Agent") + "|" + c.GetHeader("Accept-Language")))
+	return hex.EncodeToString(hash[:])
 }
 
 func buildServiceResponses(c *gin.Context, store *storage.Storage, rows []storage.ServiceRow) ([]ServiceResponse, error) {

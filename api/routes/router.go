@@ -15,4 +15,5 @@ func SetupAPIRoutes(r *gin.Engine, store *storage.Storage) {
 	g.GET("/services", func(c *gin.Context) { getServices(c, store) })
 	g.GET("/services/search", func(c *gin.Context) { searchServices(c, store) })
 	g.GET("/service/:slug", func(c *gin.Context) { getService(c, store) })
+	g.POST("/service/:slug/report", func(c *gin.Context) { createServiceReport(c, store) })
 }
