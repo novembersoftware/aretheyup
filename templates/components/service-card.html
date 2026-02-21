@@ -75,6 +75,25 @@
 	<div class="rounded-2xl border border-base-content/10 bg-base-100/90 shadow-sm backdrop-blur">
 		<div class="p-5 sm:p-6">
 			<div class="flex items-center justify-between gap-3 mb-4">
+				<h2 class="text-sm font-semibold tracking-wide uppercase text-base-content/60">Report volume (24h)</h2>
+				<span class="text-xs text-base-content/50">30-min windows</span>
+			</div>
+			<div class="h-36 rounded-xl bg-base-200/60 border border-base-content/10 p-3 overflow-x-auto">
+				<div class="h-full min-w-[36rem] flex items-end gap-1.5">
+					{{ range .service.ReportBuckets }}
+					<div class="group flex-1 h-full flex items-end" title="{{ .Label }} - {{ .Count }} reports">
+						<div class="w-full rounded-sm {{ if eq .Level " high" }}bg-error{{ else if eq .Level "elevated"
+							}}bg-warning{{ else }}bg-success/70{{ end }}" style="height: {{ .HeightPct }}%"></div>
+					</div>
+					{{ end }}
+				</div>
+			</div>
+		</div>
+	</div>
+
+	<div class="rounded-2xl border border-base-content/10 bg-base-100/90 shadow-sm backdrop-blur">
+		<div class="p-5 sm:p-6">
+			<div class="flex items-center justify-between gap-3 mb-4">
 				<h2 class="text-sm font-semibold tracking-wide uppercase text-base-content/60">Regions</h2>
 				<span class="text-xs text-base-content/50">{{ .service.ReportWindowLabel }}</span>
 			</div>
@@ -100,25 +119,6 @@
 				{{ end }}
 			</div>
 			{{ end }}
-		</div>
-	</div>
-
-	<div class="rounded-2xl border border-base-content/10 bg-base-100/90 shadow-sm backdrop-blur">
-		<div class="p-5 sm:p-6">
-			<div class="flex items-center justify-between gap-3 mb-4">
-				<h2 class="text-sm font-semibold tracking-wide uppercase text-base-content/60">Report volume (24h)</h2>
-				<span class="text-xs text-base-content/50">30-min windows</span>
-			</div>
-			<div class="h-36 rounded-xl bg-base-200/60 border border-base-content/10 p-3 overflow-x-auto">
-				<div class="h-full min-w-[36rem] flex items-end gap-1.5">
-					{{ range .service.ReportBuckets }}
-					<div class="group flex-1 h-full flex items-end" title="{{ .Label }} - {{ .Count }} reports">
-						<div class="w-full rounded-sm {{ if eq .Level " high" }}bg-error{{ else if eq .Level "elevated"
-							}}bg-warning{{ else }}bg-success/70{{ end }}" style="height: {{ .HeightPct }}%"></div>
-					</div>
-					{{ end }}
-				</div>
-			</div>
 		</div>
 	</div>
 
