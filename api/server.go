@@ -41,6 +41,7 @@ func Start(store *storage.Storage) {
 		store,
 		getRateLimiter("public", store),
 		getRateLimiter("report", store),
+		middleware.RequireWebsiteWriteOrigin(config.C.AllowedPageOrigins),
 	)
 
 	run(r)

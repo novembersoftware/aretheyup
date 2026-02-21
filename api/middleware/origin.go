@@ -40,6 +40,29 @@ func RequireAllowedPageOrigin(allowedOriginsCSV string) gin.HandlerFunc {
 	}
 }
 
+func RequireWebsiteWriteOrigin(allowedOriginsCSV string) gin.HandlerFunc {
+	validator := newOriginValidator(allowedOriginsCSV)
+
+	return func(c *gin.Context) {
+		if !isHTMXRequest(c) {
+			utils.Respond(c, http.StatusForbidden, "error", gin.H{"error": "Website request required"})
+			c.Abort()
+			return
+		}
+
+		origin := normalizeOrigin(c.GetHeader("Origin"))
+		refererOrigin := originFromReferer(c.GetHeader("Referer"))
+
+		if !validator.matches(origin) && !validator.matches(refererOrigin) {
+			utils.Respond(c, http.StatusForbidden, "error", gin.H{"error": "Origin not allowed"})
+			c.Abort()
+			return
+		}
+
+		c.Next()
+	}
+}
+
 func (v originValidator) allowsRequest(c *gin.Context) bool {
 	origin := normalizeOrigin(c.GetHeader("Origin"))
 	if origin != "" {

@@ -13,11 +13,11 @@ func SetupPageRoutes(r *gin.Engine, pageOriginGuard, publicRouteLimiter gin.Hand
 	group.GET("/:slug", publicRouteLimiter, getServicePage)
 }
 
-func SetupAPIRoutes(r *gin.Engine, store *storage.Storage, publicRouteLimiter, reportRouteLimiter gin.HandlerFunc) {
+func SetupAPIRoutes(r *gin.Engine, store *storage.Storage, publicRouteLimiter, reportRouteLimiter, websiteWriteGuard gin.HandlerFunc) {
 	g := r.Group("/api")
 	g.Use(middleware.OpenAPICORS())
 	g.GET("/services", publicRouteLimiter, func(c *gin.Context) { getServices(c, store) })
 	g.GET("/services/search", publicRouteLimiter, func(c *gin.Context) { searchServices(c, store) })
 	g.GET("/service/:slug", publicRouteLimiter, func(c *gin.Context) { getService(c, store) })
-	g.POST("/service/:slug/report", reportRouteLimiter, func(c *gin.Context) { createServiceReport(c, store) })
+	g.POST("/service/:slug/report", websiteWriteGuard, reportRouteLimiter, func(c *gin.Context) { createServiceReport(c, store) })
 }
