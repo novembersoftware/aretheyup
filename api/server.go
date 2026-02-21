@@ -20,6 +20,8 @@ func Start(store *storage.Storage) {
 	r := gin.New()
 
 	r.Use(gin.Recovery())
+	r.Use(middleware.RequestID())
+	r.Use(middleware.SecurityHeaders())
 	r.Use(middleware.Logger)
 	r.Use(getRateLimiter("global", store))
 
@@ -29,8 +31,17 @@ func Start(store *storage.Storage) {
 
 	r.Static("/static", "./static")
 
-	routes.SetupPageRoutes(r, getRateLimiter("public", store))
-	routes.SetupAPIRoutes(r, store, getRateLimiter("public", store), getRateLimiter("report", store))
+	routes.SetupPageRoutes(
+		r,
+		middleware.RequireAllowedPageOrigin(config.C.AllowedPageOrigins),
+		getRateLimiter("public", store),
+	)
+	routes.SetupAPIRoutes(
+		r,
+		store,
+		getRateLimiter("public", store),
+		getRateLimiter("report", store),
+	)
 
 	run(r)
 }

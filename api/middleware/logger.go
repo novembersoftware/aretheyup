@@ -24,8 +24,10 @@ func Logger(c *gin.Context) {
 	}
 
 	event.
+		Str("request_id", c.GetString(RequestIDContextKey)).
 		Str("method", c.Request.Method).
 		Str("path", path).
+		Str("client_ip", c.ClientIP()).
 		Int("status", c.Writer.Status()).
 		Dur("latency", time.Since(start)).
 		Msg("Request completed")
