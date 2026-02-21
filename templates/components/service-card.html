@@ -66,6 +66,35 @@
 	<div class="rounded-2xl border border-base-content/10 bg-base-100/90 shadow-sm backdrop-blur">
 		<div class="p-5 sm:p-6">
 			<div class="flex items-center justify-between gap-3 mb-4">
+				<h2 class="text-sm font-semibold tracking-wide uppercase text-base-content/60">Regional signal</h2>
+				<span class="text-xs text-base-content/50">{{ .service.ReportWindowLabel }}</span>
+			</div>
+			{{ if not .service.RegionalReports }}
+			<p class="text-sm text-base-content/60">No regional report data yet.</p>
+			{{ else }}
+			<div class="space-y-3">
+				{{ range .service.RegionalReports }}
+				<div class="rounded-xl border border-base-content/10 bg-base-200/40 p-3">
+					<div class="flex items-center justify-between text-sm">
+						<div class="flex items-center gap-2">
+							<span class="w-2.5 h-2.5 rounded-full {{ if ge .Percent 40 }}bg-error{{ else if ge .Percent 20 }}bg-warning{{ else }}bg-success{{ end }}"></span>
+							<span class="font-medium">{{ .Region }}</span>
+						</div>
+						<span class="font-mono text-base-content/70">{{ .Count }} reports</span>
+					</div>
+					<div class="mt-2 h-1.5 w-full bg-base-300 rounded-full overflow-hidden">
+						<div class="h-full {{ if ge .Percent 40 }}bg-error{{ else if ge .Percent 20 }}bg-warning{{ else }}bg-success{{ end }}" style="width: {{ .Percent }}%"></div>
+					</div>
+				</div>
+				{{ end }}
+			</div>
+			{{ end }}
+		</div>
+	</div>
+
+	<div class="rounded-2xl border border-base-content/10 bg-base-100/90 shadow-sm backdrop-blur">
+		<div class="p-5 sm:p-6">
+			<div class="flex items-center justify-between gap-3 mb-4">
 				<h2 class="text-sm font-semibold tracking-wide uppercase text-base-content/60">Report volume (24h)</h2>
 				<span class="text-xs text-base-content/50">30-min windows</span>
 			</div>

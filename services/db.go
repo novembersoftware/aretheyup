@@ -121,6 +121,8 @@ func SeedDB(db *gorm.DB, numServices int, clearDB bool) {
 			recentReportCount = r.Intn(3)
 		}
 
+		regions := []string{"US", "CA", "GB", "DE", "BR", "AU", "IN"}
+
 		for j := 0; j < recentReportCount; j++ {
 			report := structs.UserReport{
 				ServiceID:   service.ID,
@@ -128,6 +130,7 @@ func SeedDB(db *gorm.DB, numServices int, clearDB bool) {
 				UserAgent:   "Mozilla/5.0 (Seed Data)",
 				CreatedAt:   time.Now().Add(-time.Duration(r.Intn(600)) * time.Second),
 				Fingerprint: fmt.Sprintf("fp-%d-%d", service.ID, j),
+				Region:      regions[r.Intn(len(regions))],
 			}
 
 			if err := db.Create(&report).Error; err != nil {
@@ -143,6 +146,7 @@ func SeedDB(db *gorm.DB, numServices int, clearDB bool) {
 				UserAgent:   "Mozilla/5.0 (Seed Data)",
 				CreatedAt:   time.Now().Add(-time.Duration(r.Intn(168)+10) * time.Hour),
 				Fingerprint: fmt.Sprintf("fp-%d-%d-old", service.ID, j),
+				Region:      regions[r.Intn(len(regions))],
 			}
 
 			if err := db.Create(&report).Error; err != nil {

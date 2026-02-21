@@ -17,6 +17,11 @@ type DailyReportCount struct {
 	Count int64
 }
 
+type RegionalReportCount struct {
+	Region string
+	Count  int64
+}
+
 func (s *Storage) GetReportBucketsForService(ctx context.Context, serviceID uint, since time.Time, bucketSize time.Duration) ([]ReportBucket, error) {
 	bucketSeconds := int(bucketSize / time.Second)
 	if bucketSeconds <= 0 {
@@ -103,4 +108,34 @@ func (s *Storage) GetDailyReportCountsForService(ctx context.Context, serviceID 
 	}
 
 	return days, nil
+}
+
+func (s *Storage) GetRegionalReportCountsForService(ctx context.Context, serviceID uint, since time.Time, limit int) ([]RegionalReportCount, error) {
+	if limit <= 0 {
+		limit = 8
+	}
+
+	var rows []struct {
+		Region string
+		Count  int64
+	}
+
+	err := s.db.WithContext(ctx).Raw(`
+		SELECT COALESCE(NULLIF(TRIM(region), ''), 'Unknown') AS region, COUNT(*) AS count
+		FROM user_reports
+		WHERE service_id = ? AND created_at >= ?
+		GROUP BY region
+		ORDER BY count DESC, region ASC
+		LIMIT ?
+	`, serviceID, since, limit).Scan(&rows).Error
+	if err != nil {
+		return nil, err
+	}
+
+	counts := make([]RegionalReportCount, len(rows))
+	for i, row := range rows {
+		counts[i] = RegionalReportCount{Region: row.Region, Count: row.Count}
+	}
+
+	return counts, nil
 }

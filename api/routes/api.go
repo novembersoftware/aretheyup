@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"math"
 	"sort"
+	"strings"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -46,22 +47,23 @@ func getServices(c *gin.Context, store *storage.Storage) {
 }
 
 type ServiceDetailResponse struct {
-	ID                  uint                    `json:"id"`
-	Slug                string                  `json:"slug"`
-	Name                string                  `json:"name"`
-	URL                 string                  `json:"url"`
-	Category            string                  `json:"category"`
-	Status              string                  `json:"status"`
-	RecentReports       int64                   `json:"recent_reports"`
-	ReportWindowLabel   string                  `json:"report_window_label"`
-	BaselineMeanReports float64                 `json:"baseline_mean_reports"`
-	WindowUsagePercent  int                     `json:"window_usage_percent"`
-	UptimePercent       float64                 `json:"uptime_percent"`
-	UptimeDays          []UptimeDayResponse     `json:"uptime_days"`
-	OutageDayCount      int                     `json:"outage_day_count"`
-	ElevatedDayCount    int                     `json:"elevated_day_count"`
-	ReportBuckets       []ReportBucketResponse  `json:"report_buckets"`
-	IncidentTimeline    []IncidentEntryResponse `json:"incident_timeline"`
+	ID                  uint                     `json:"id"`
+	Slug                string                   `json:"slug"`
+	Name                string                   `json:"name"`
+	URL                 string                   `json:"url"`
+	Category            string                   `json:"category"`
+	Status              string                   `json:"status"`
+	RecentReports       int64                    `json:"recent_reports"`
+	ReportWindowLabel   string                   `json:"report_window_label"`
+	BaselineMeanReports float64                  `json:"baseline_mean_reports"`
+	WindowUsagePercent  int                      `json:"window_usage_percent"`
+	UptimePercent       float64                  `json:"uptime_percent"`
+	UptimeDays          []UptimeDayResponse      `json:"uptime_days"`
+	OutageDayCount      int                      `json:"outage_day_count"`
+	ElevatedDayCount    int                      `json:"elevated_day_count"`
+	ReportBuckets       []ReportBucketResponse   `json:"report_buckets"`
+	RegionalReports     []RegionalReportResponse `json:"regional_reports"`
+	IncidentTimeline    []IncidentEntryResponse  `json:"incident_timeline"`
 }
 
 type ReportBucketResponse struct {
@@ -81,6 +83,12 @@ type IncidentEntryResponse struct {
 	ResolvedAtLabel string `json:"resolved_at_label"`
 	DurationLabel   string `json:"duration_label"`
 	Ongoing         bool   `json:"ongoing"`
+}
+
+type RegionalReportResponse struct {
+	Region  string `json:"region"`
+	Count   int64  `json:"count"`
+	Percent int    `json:"percent"`
 }
 
 // GET /api/services/search?q=...
@@ -146,6 +154,7 @@ func createServiceReport(c *gin.Context, store *storage.Storage) {
 		IPAddress:   c.ClientIP(),
 		UserAgent:   userAgent,
 		Fingerprint: requestFingerprint(c),
+		Region:      requestRegion(c),
 	}
 
 	if err := store.CreateUserReport(c.Request.Context(), &report); err != nil {
@@ -189,6 +198,13 @@ func respondServiceCard(c *gin.Context, store *storage.Storage, service *structs
 		return
 	}
 	histogram := buildReportHistogram(now, reportBuckets, baseline, status)
+
+	regionalCounts, err := store.GetRegionalReportCountsForService(ctx, service.ID, reportWindowStart, 8)
+	if err != nil {
+		utils.Respond(c, 500, "error", gin.H{"error": "Failed to load regional report data"})
+		return
+	}
+	regionalReports := buildRegionalReportBreakdown(regionalCounts, recentReports)
 
 	windowStartDay := now.Truncate(24*time.Hour).AddDate(0, 0, -89)
 	windowEnd := now
@@ -238,6 +254,7 @@ func respondServiceCard(c *gin.Context, store *storage.Storage, service *structs
 		OutageDayCount:      outageDays,
 		ElevatedDayCount:    elevatedDays,
 		ReportBuckets:       histogram,
+		RegionalReports:     regionalReports,
 		IncidentTimeline:    timeline,
 	}
 
@@ -255,6 +272,91 @@ func requestFingerprint(c *gin.Context) string {
 
 	hash := sha256.Sum256([]byte(c.ClientIP() + "|" + c.GetHeader("User-Agent") + "|" + c.GetHeader("Accept-Language")))
 	return hex.EncodeToString(hash[:])
+}
+
+func requestRegion(c *gin.Context) string {
+	for _, key := range []string{
+		"X-Region",
+		"X-Country-Code",
+		"CF-IPCountry",
+		"CloudFront-Viewer-Country",
+		"X-AppEngine-Country",
+	} {
+		if value := sanitizeRegion(c.GetHeader(key)); value != "" {
+			return value
+		}
+	}
+
+	if languageRegion := regionFromAcceptLanguage(c.GetHeader("Accept-Language")); languageRegion != "" {
+		return languageRegion
+	}
+
+	return "Unknown"
+}
+
+func sanitizeRegion(value string) string {
+	v := strings.ToUpper(strings.TrimSpace(value))
+	if v == "" || v == "XX" || v == "T1" || v == "A1" || v == "UNKNOWN" {
+		return ""
+	}
+	if len(v) > 24 {
+		return v[:24]
+	}
+	return v
+}
+
+func regionFromAcceptLanguage(value string) string {
+	if value == "" {
+		return ""
+	}
+	parts := strings.Split(value, ",")
+	if len(parts) == 0 {
+		return ""
+	}
+
+	first := strings.TrimSpace(parts[0])
+	if first == "" {
+		return ""
+	}
+
+	lang := strings.Split(first, ";")[0]
+	chunks := strings.Split(lang, "-")
+	if len(chunks) < 2 {
+		return ""
+	}
+
+	return sanitizeRegion(chunks[len(chunks)-1])
+}
+
+func buildRegionalReportBreakdown(regionalCounts []storage.RegionalReportCount, total int64) []RegionalReportResponse {
+	if len(regionalCounts) == 0 {
+		return []RegionalReportResponse{}
+	}
+
+	denominator := float64(total)
+	if denominator <= 0 {
+		for _, row := range regionalCounts {
+			denominator += float64(row.Count)
+		}
+	}
+	if denominator <= 0 {
+		denominator = 1
+	}
+
+	response := make([]RegionalReportResponse, len(regionalCounts))
+	for i, row := range regionalCounts {
+		pct := int(math.Round((float64(row.Count) / denominator) * 100))
+		if pct == 0 && row.Count > 0 {
+			pct = 1
+		}
+		response[i] = RegionalReportResponse{
+			Region:  row.Region,
+			Count:   row.Count,
+			Percent: pct,
+		}
+	}
+
+	return response
 }
 
 func buildServiceResponses(c *gin.Context, store *storage.Storage, rows []storage.ServiceRow) ([]ServiceResponse, error) {
