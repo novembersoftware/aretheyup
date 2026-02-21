@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/lib/pq"
 	"github.com/novembersoftware/aretheyup/structs"
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
@@ -116,7 +117,10 @@ func (s *Storage) refreshServiceBaselines(ctx context.Context, serviceID uint, c
 			AND created_at <= ?
 		GROUP BY hour_of_week
 	`, serviceID, start, end).Scan(&probeBuckets).Error; err != nil {
-		return err
+		// Let report baselines continue even when probe storage is not ready yet
+		if !isProbeDataUnavailable(err) {
+			return err
+		}
 	}
 
 	probeByHour := make(map[int]probeBaselineBucket, len(probeBuckets))
@@ -191,9 +195,8 @@ func (s *Storage) GetRecentProbeStats(ctx context.Context, serviceID uint, limit
 	var stat ProbeStats
 	if err := s.db.WithContext(ctx).Raw(`
 		SELECT
-			? AS service_id,
 			COUNT(*) AS recent_probe_total,
-			COALESCE(SUM(CASE WHEN recent.success = false THEN 1 ELSE 0 END), 0) AS recent_probe_failures
+			COALESCE(SUM(CASE WHEN success = false THEN 1 ELSE 0 END), 0) AS recent_probe_failures
 		FROM (
 			SELECT success
 			FROM probe_results
@@ -201,7 +204,11 @@ func (s *Storage) GetRecentProbeStats(ctx context.Context, serviceID uint, limit
 			ORDER BY created_at DESC
 			LIMIT ?
 		) AS recent
-	`, serviceID, serviceID, limit).Scan(&stat).Error; err != nil {
+	`, serviceID, limit).Scan(&stat).Error; err != nil {
+		// Missing probe tables should behave like no probe samples
+		if isProbeDataUnavailable(err) {
+			return 0, 0, nil
+		}
 		return 0, 0, err
 	}
 
@@ -216,6 +223,7 @@ func (s *Storage) GetRecentProbeStatsForServices(ctx context.Context, serviceIDs
 	}
 
 	var stats []ProbeStats
+	serviceIDList := toInt64Slice(serviceIDs)
 	if err := s.db.WithContext(ctx).Raw(`
 		WITH ranked AS (
 			SELECT
@@ -223,7 +231,7 @@ func (s *Storage) GetRecentProbeStatsForServices(ctx context.Context, serviceIDs
 				success,
 				ROW_NUMBER() OVER (PARTITION BY service_id ORDER BY created_at DESC) AS rn
 			FROM probe_results
-			WHERE service_id IN ?
+			WHERE service_id = ANY(?)
 		),
 		recent AS (
 			SELECT service_id, success
@@ -236,7 +244,11 @@ func (s *Storage) GetRecentProbeStatsForServices(ctx context.Context, serviceIDs
 			COALESCE(SUM(CASE WHEN success = false THEN 1 ELSE 0 END), 0) AS recent_probe_failures
 		FROM recent
 		GROUP BY service_id
-	`, serviceIDs, limit).Scan(&stats).Error; err != nil {
+	`, pq.Array(serviceIDList), limit).Scan(&stats).Error; err != nil {
+		// Missing probe tables should behave like an empty probe map
+		if isProbeDataUnavailable(err) {
+			return byService, nil
+		}
 		return nil, err
 	}
 
@@ -254,4 +266,21 @@ func floorToHalfHour(t time.Time) time.Time {
 		minute = 30
 	}
 	return time.Date(t.Year(), t.Month(), t.Day(), t.Hour(), minute, 0, 0, t.Location())
+}
+
+func toInt64Slice(in []uint) []int64 {
+	out := make([]int64, len(in))
+	for i, v := range in {
+		out[i] = int64(v)
+	}
+	return out
+}
+
+func isProbeDataUnavailable(err error) bool {
+	var pqErr *pq.Error
+	if !errors.As(err, &pqErr) {
+		return false
+	}
+
+	return pqErr.Code == "42P01" || pqErr.Code == "42703"
 }
