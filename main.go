@@ -60,8 +60,10 @@ func apiMode(store *storage.Storage) {
 	if err != nil {
 		log.Fatal().Err(err).Msg("Failed to connect to Redis")
 	}
-	// Keep algorithm baselines refreshed in the background while API is running.
+	// Keep algorithm baselines refreshed in the background while API is running
 	workers.StartBaselineRefresher(store)
+	// Track status transitions and keep incidents in sync in the background
+	workers.StartIncidentTracker(store)
 	api.Start(store)
 }
 

@@ -132,6 +132,17 @@ Note: this repo currently consumes probe _results_ for scoring, but does not yet
 - Baselines and probe stats are fetched in batches for list/search to avoid N+1 issues
 - Templates now show a single issue state label: `Issues Detected`
 
+### Incident tracking
+
+Incident records are managed by a background worker (`workers/incidents.go`).
+
+- Runs on API startup, then every minute
+- Recomputes current status for each active service using the same algorithm signals
+- Opens an incident when status flips to `Issues Detected` and no active incident exists
+- Resolves the incident when status returns to `Operational`
+
+This keeps incident history aligned with the status algorithm without relying on page requests.
+
 ## Idea
 
 - Real-time SEO-friendly status pages for different websites
