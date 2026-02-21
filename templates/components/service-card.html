@@ -1,49 +1,146 @@
 {{ define "service-card" }}
-<div>
-	<div class="flex items-center gap-4 mb-8 w-full">
-		<img src="https://www.google.com/s2/favicons?domain={{ .service.URL }}&sz=64" alt=""
-			class="w-12 h-12 rounded-lg" />
-		<div class="w-full">
-			<div class="flex items-center justify-between w-full">
-				<h1 class="text-2xl font-bold">{{ .service.Name }}</h1>
-				<div class="flex items-center gap-2">
+<div class="space-y-6">
+	<div class="rounded-2xl border border-base-content/10 bg-base-100/90 shadow-sm backdrop-blur">
+		<div class="p-5 sm:p-6">
+			<div class="flex items-center justify-between gap-4 mb-4">
+				{{ if eq .service.Status "Operational" }}
+				<span class="text-xs font-medium px-2 py-0.5 rounded-md bg-success/20 text-success">Operational</span>
+				{{ else }}
+				<span class="text-xs font-medium px-2 py-0.5 rounded-md bg-error/20 text-error">Issues Detected</span>
+				{{ end }}
+				<div class="flex items-center gap-3">
 					{{ if .reported }}
-					<span class="text-xs text-success font-medium">Thanks, report sent</span>
+					<span class="inline-flex items-center gap-1.5 rounded-md bg-success/10 px-2 py-0.5 text-xs font-medium text-success">
+						{{ lucide "badge-check" (dict "size" 14) }} Report received
+					</span>
 					{{ end }}
-					<button class="btn" hx-post="/api/service/{{ .service.Slug }}/report" hx-target="#service-card"
-						hx-swap="innerHTML" hx-disabled-elt="this">
-						<span class="text-sm">I'm having issues</span>
+					<button
+						class="btn btn-sm sm:btn-md bg-base-100 text-base-content border-base-content/20 hover:bg-base-200"
+						hx-post="/api/service/{{ .service.Slug }}/report" hx-target="#service-card" hx-swap="innerHTML"
+						hx-disabled-elt="this">
+						I'm having issues
 					</button>
 				</div>
 			</div>
-			<a href="{{ .service.URL }}" target="_blank">{{ .service.URL }}</a>
+			<div class="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+				<div class="flex items-start gap-4 min-w-0">
+					<img src="https://www.google.com/s2/favicons?domain={{ .service.URL }}&sz=64" alt=""
+						class="w-12 h-12 rounded-xl border border-base-content/10 mt-1" />
+					<div class="min-w-0">
+						<h1 class="text-2xl sm:text-3xl font-bold tracking-tight truncate">{{ .service.Name }}</h1>
+						<a href="{{ .service.URL }}" target="_blank"
+							class="text-sm text-base-content/60 hover:text-base-content truncate block">{{
+							.service.URL }}</a>
+					</div>
+				</div>
+			</div>
+
+			<div class="grid gap-3 sm:grid-cols-3 mt-6">
+				<div class="rounded-xl border border-base-content/10 bg-base-200/50 p-4">
+					<p class="text-xs uppercase tracking-wide text-base-content/50">Reports {{
+						.service.ReportWindowLabel }}</p>
+					<p class="text-2xl font-semibold mt-1 font-mono">{{ .service.RecentReports }}</p>
+					<div class="mt-3 h-1.5 w-full bg-base-300 rounded-full overflow-hidden">
+						<div class="h-full {{ if gt .service.WindowUsagePercent 85 }}bg-error{{ else if gt .service.WindowUsagePercent 55 }}bg-warning{{ else }}bg-success{{ end }}"
+							style="width: {{ .service.WindowUsagePercent }}%"></div>
+					</div>
+				</div>
+
+				<div class="rounded-xl border border-base-content/10 bg-base-200/50 p-4">
+					<p class="text-xs uppercase tracking-wide text-base-content/50">Expected reports</p>
+					<p class="text-2xl font-semibold mt-1 font-mono">{{ printf "%.1f" .service.BaselineMeanReports }}
+					</p>
+					<p class="text-xs text-base-content/50 mt-3">Based on this hour of week</p>
+				</div>
+
+				<div class="rounded-xl border border-base-content/10 bg-base-200/50 p-4">
+					<p class="text-xs uppercase tracking-wide text-base-content/50">90-day uptime</p>
+					<p class="text-2xl font-semibold mt-1">{{ printf "%.2f%%" .service.UptimePercent }}</p>
+					<p class="text-xs text-base-content/50 mt-3">{{ .service.OutageDayCount }} incident days, {{
+						.service.ElevatedDayCount }} elevated days</p>
+				</div>
+			</div>
 		</div>
 	</div>
 
-	<div class="card bg-base-200 border border-base-content/10 mb-6">
-		<div class="card-body">
-			<div class="flex items-center justify-between">
-				<span class="text-sm text-base-content/50">Status</span>
-				<div class="flex items-center gap-2">
-					{{ if eq .service.Status "Operational" }}
-					<span class="w-2 h-2 rounded-full bg-success"></span>
-					<span class="text-sm font-medium text-success">Operational</span>
-					{{ else if eq .service.Status "Issues Detected" }}
-					<span class="w-2 h-2 rounded-full bg-error"></span>
-					<span class="text-sm font-medium text-error">Issues Detected</span>
+	<div class="rounded-2xl border border-base-content/10 bg-base-100/90 shadow-sm backdrop-blur">
+		<div class="p-5 sm:p-6">
+			<div class="flex items-center justify-between gap-3 mb-4">
+				<h2 class="text-sm font-semibold tracking-wide uppercase text-base-content/60">Report volume (24h)</h2>
+				<span class="text-xs text-base-content/50">30-min windows</span>
+			</div>
+			<div class="h-36 rounded-xl bg-base-200/60 border border-base-content/10 p-3 overflow-x-auto">
+				<div class="h-full min-w-[36rem] flex items-end gap-1.5">
+					{{ range .service.ReportBuckets }}
+					<div class="group flex-1 h-full flex items-end" title="{{ .Label }} - {{ .Count }} reports">
+						<div class="w-full rounded-sm {{ if eq .Level "high" }}bg-error{{ else if eq .Level "elevated" }}bg-warning{{ else }}bg-success/70{{ end }}" style="height: {{ .HeightPct }}%"></div>
+					</div>
 					{{ end }}
 				</div>
 			</div>
-			<div class="divider my-2"></div>
-			<div class="flex items-center justify-between">
-				<span class="text-sm text-base-content/50">Category</span>
-				<span class="text-sm">{{ .service.Category }}</span>
+		</div>
+	</div>
+
+	<div class="rounded-2xl border border-base-content/10 bg-base-100/90 shadow-sm backdrop-blur">
+		<div class="p-5 sm:p-6">
+			<div class="flex items-center justify-between gap-3 mb-4">
+				<h2 class="text-sm font-semibold tracking-wide uppercase text-base-content/60">Uptime history</h2>
+				<span class="text-xs text-base-content/50">90 days</span>
 			</div>
-			<div class="divider my-2"></div>
-			<div class="flex items-center justify-between">
-				<span class="text-sm text-base-content/50">Reports (last 30 min)</span>
-				<span class="text-sm font-mono">{{ .service.RecentReports }}</span>
+
+			<div class="grid grid-cols-[repeat(30,minmax(0,1fr))] gap-1">
+				{{ range .service.UptimeDays }}
+				<div title="{{ .Label }}" class="h-7 rounded-sm {{ if eq .Level "outage" }}bg-error{{ else if eq .Level "elevated" }}bg-warning{{ else }}bg-success{{ end }}"></div>
+				{{ end }}
 			</div>
+
+			<div class="flex items-center justify-between mt-3 text-xs text-base-content/50">
+				<span>90 days ago</span>
+				<span>Today</span>
+			</div>
+			<div class="flex items-center gap-4 mt-3 text-xs text-base-content/60">
+				<span class="inline-flex items-center gap-1"><span
+						class="w-2.5 h-2.5 rounded-sm bg-success"></span>Operational</span>
+				<span class="inline-flex items-center gap-1"><span
+						class="w-2.5 h-2.5 rounded-sm bg-warning"></span>Elevated reports</span>
+				<span class="inline-flex items-center gap-1"><span
+						class="w-2.5 h-2.5 rounded-sm bg-error"></span>Incident day</span>
+			</div>
+		</div>
+	</div>
+
+	<div class="rounded-2xl border border-base-content/10 bg-base-100/90 shadow-sm backdrop-blur">
+		<div class="p-5 sm:p-6">
+			<div class="flex items-center justify-between gap-3 mb-4">
+				<h2 class="text-sm font-semibold tracking-wide uppercase text-base-content/60">Incident timeline</h2>
+				<span class="text-xs text-base-content/50">Last 90 days</span>
+			</div>
+			{{ if not .service.IncidentTimeline }}
+			<p class="text-sm text-base-content/60">No incidents recorded yet.</p>
+			{{ else }}
+			<div class="space-y-3">
+				{{ range .service.IncidentTimeline }}
+				<div
+					class="rounded-xl border border-base-content/10 bg-base-200/40 p-3 flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between">
+					<div>
+						<p class="text-sm font-medium">{{ .StartedAtLabel }}</p>
+						<p class="text-xs text-base-content/60">to {{ .ResolvedAtLabel }}</p>
+					</div>
+					<div class="flex items-center gap-2">
+						{{ if .Ongoing }}
+						<span class="badge badge-error badge-sm">Active</span>
+						{{ else }}
+						<span class="badge badge-ghost badge-sm">Resolved</span>
+						{{ end }}
+						<span class="text-xs font-mono text-base-content/70">{{ .DurationLabel }}</span>
+					</div>
+				</div>
+				{{ end }}
+			</div>
+			{{ if eq (len .service.IncidentTimeline) 20 }}
+			<p class="mt-3 text-xs text-base-content/50">Showing 20 most recent incidents.</p>
+			{{ end }}
+			{{ end }}
 		</div>
 	</div>
 </div>
