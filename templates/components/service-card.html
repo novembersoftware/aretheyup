@@ -34,7 +34,7 @@
 			<div class="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
 				<div class="flex items-start gap-4 min-w-0">
 					<img src="https://www.google.com/s2/favicons?domain={{ .service.URL }}&sz=64" alt=""
-						class="w-12 h-12 rounded-xl border border-base-content/10 mt-1" />
+						class="w-12 h-12 mt-1 rounded-sm" />
 					<div class="min-w-0">
 						<h1 class="text-2xl sm:text-3xl font-bold tracking-tight truncate">{{ .service.Name }}</h1>
 						<a href="{{ .service.URL }}" target="_blank"
@@ -75,11 +75,11 @@
 	<div class="rounded-2xl border border-base-content/10 bg-base-100/90 shadow-sm backdrop-blur">
 		<div class="p-5 sm:p-6">
 			<div class="flex items-center justify-between gap-3 mb-4">
-				<h2 class="text-sm font-semibold tracking-wide uppercase text-base-content/60">Regional signal</h2>
+				<h2 class="text-sm font-semibold tracking-wide uppercase text-base-content/60">Regions</h2>
 				<span class="text-xs text-base-content/50">{{ .service.ReportWindowLabel }}</span>
 			</div>
 			{{ if not .service.RegionalReports }}
-			<p class="text-sm text-base-content/60">No regional report data yet.</p>
+			<p class="text-sm text-base-content/60">No regional report data right now.</p>
 			{{ else }}
 			<div class="space-y-3">
 				{{ range .service.RegionalReports }}
@@ -158,7 +158,7 @@
 				<span class="text-xs text-base-content/50">Last 90 days</span>
 			</div>
 			{{ if not .service.IncidentTimeline }}
-			<p class="text-sm text-base-content/60">No incidents recorded yet.</p>
+			<p class="text-sm text-base-content/60">No incidents recorded right now.</p>
 			{{ else }}
 			<div class="space-y-3">
 				{{ range .service.IncidentTimeline }}
