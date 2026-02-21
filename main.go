@@ -43,7 +43,12 @@ func main() {
 		log.Fatal().Err(err).Msg("Failed to migrate database")
 	}
 
-	store := storage.New(db)
+	redis, err := services.NewRedis(config.C.RedisURL)
+	if err != nil {
+		log.Fatal().Err(err).Msg("Failed to connect to Redis")
+	}
+
+	store := storage.New(db, redis)
 
 	switch flags.Mode {
 	case utils.ModeAPI:
@@ -56,13 +61,7 @@ func main() {
 }
 
 func apiMode(store *storage.Storage) {
-	_, err := services.NewRedis(config.C.RedisURL)
-	if err != nil {
-		log.Fatal().Err(err).Msg("Failed to connect to Redis")
-	}
-	// Keep algorithm baselines refreshed in the background while API is running
 	workers.StartBaselineRefresher(store)
-	// Track status transitions and keep incidents in sync in the background
 	workers.StartIncidentTracker(store)
 	api.Start(store)
 }

@@ -2,23 +2,32 @@ package storage
 
 import (
 	"context"
+	"encoding/json"
+	"errors"
 	"time"
 
 	"github.com/novembersoftware/aretheyup/algorithm"
 	"github.com/novembersoftware/aretheyup/structs"
+	r "github.com/redis/go-redis/v9"
+	"github.com/rs/zerolog/log"
 	"gorm.io/gorm"
+)
+
+const (
+	listServicesCacheKey = "services:list:v1"
+	listServicesCacheTTL = 10 * time.Second
 )
 
 // Storage is the data access layer. It holds connections to all backing stores
 // and exposes methods for every data operation
 type Storage struct {
-	db *gorm.DB
-	// redis *redis.Client
+	db    *gorm.DB
+	redis *r.Client
 }
 
 // New returns a Storage backed by the provided Postgres connection
-func New(db *gorm.DB) *Storage {
-	return &Storage{db: db}
+func New(db *gorm.DB, redis *r.Client) *Storage {
+	return &Storage{db: db, redis: redis}
 }
 
 // ServiceRow is the result of a services query that includes aggregated report counts
@@ -33,6 +42,10 @@ type ServiceRow struct {
 
 // ListServices returns all services ordered by recent report count (descending)
 func (s *Storage) ListServices(ctx context.Context) ([]ServiceRow, error) {
+	if cached, ok := s.getCachedServiceRows(ctx, listServicesCacheKey); ok {
+		return cached, nil
+	}
+
 	var rows []ServiceRow
 	// Keep this in sync with the algorithm's report window.
 	reportWindowStart := time.Now().Add(-algorithm.ReportWindow)
@@ -45,7 +58,13 @@ func (s *Storage) ListServices(ctx context.Context) ([]ServiceRow, error) {
 		ORDER BY recent_report_count DESC
 		LIMIT 48
 	`, reportWindowStart).Scan(&rows)
-	return rows, result.Error
+	if result.Error != nil {
+		return rows, result.Error
+	}
+
+	s.setCachedServiceRows(ctx, listServicesCacheKey, rows)
+
+	return rows, nil
 }
 
 // SearchServices returns services filtered by name (case-insensitive substring match),
@@ -158,4 +177,43 @@ func (s *Storage) UpsertProbeConfig(ctx context.Context, pc *structs.ProbeConfig
 		return s.db.WithContext(ctx).Create(pc).Error
 	}
 	return s.db.WithContext(ctx).Save(pc).Error
+}
+
+func (s *Storage) getCachedServiceRows(ctx context.Context, key string) ([]ServiceRow, bool) {
+	if s.redis == nil {
+		return nil, false
+	}
+
+	payload, err := s.redis.Get(ctx, key).Bytes()
+	if err != nil {
+		if !errors.Is(err, r.Nil) {
+			log.Debug().Err(err).Str("cache_key", key).Msg("Failed to read list cache")
+		}
+		return nil, false
+	}
+
+	var rows []ServiceRow
+	if err := json.Unmarshal(payload, &rows); err != nil {
+		log.Debug().Err(err).Str("cache_key", key).Msg("Failed to decode list cache")
+		_ = s.redis.Del(ctx, key).Err()
+		return nil, false
+	}
+
+	return rows, true
+}
+
+func (s *Storage) setCachedServiceRows(ctx context.Context, key string, rows []ServiceRow) {
+	if s.redis == nil {
+		return
+	}
+
+	payload, err := json.Marshal(rows)
+	if err != nil {
+		log.Debug().Err(err).Str("cache_key", key).Msg("Failed to encode list cache")
+		return
+	}
+
+	if err := s.redis.Set(ctx, key, payload, listServicesCacheTTL).Err(); err != nil {
+		log.Debug().Err(err).Str("cache_key", key).Msg("Failed to write list cache")
+	}
 }
