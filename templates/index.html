@@ -1,60 +1,54 @@
 {{define "index.html"}}
 <!doctype html>
 <html lang="en" data-theme="dracula">
-	{{ template "head" . }}
-	<body>
-		{{ template "navbar" . }}
-		<main class="flex-1">
-			<div class="mx-auto px-4 pt-16 pb-12">
-				<div class="text-start mb-14 mx-auto max-w-2xl">
-					<h1 class="text-3xl font-bold tracking-tight mb-2">
-						Real-time outage detection
-					</h1>
-					<p class="text-sm text-base-content/50 mb-6">
-						Check if a service is actually down, or if it's just
-						you.
-					</p>
-					<div class="relative items-center">
-						<input
-							id="q"
-							name="q"
-							class="input w-full bg-base-200 border-base-content/10 font-mono text-sm focus:outline-none focus:ring placeholder:text-base-content/30"
-							placeholder="Search for a service..."
-							autocomplete="off"
-							spellcheck="false"
-							hx-get="/api/services/search"
-							hx-trigger="load, input changed delay:300ms"
-							hx-target="#service-list"
-							hx-swap="innerHTML"
-							hx-indicator="#search-spinner"
-						/>
-						<span
-							id="search-spinner"
-							class="htmx-indicator absolute right-3 top-1/2 -translate-y-1/2"
-						>
-							<span
-								class="loading loading-spinner loading-xs text-base-content/40"
-							></span>
-						</span>
-					</div>
-				</div>
+{{ template "head" . }}
 
-				<div
-					id="service-list"
-					hx-get="/api/services"
-					hx-trigger="every 10s [document.getElementById('q').value === '' && !document.hidden], every 60s [document.getElementById('q').value === '' && document.hidden]"
-					hx-swap="innerHTML"
-				>
-					<div class="animate-pulse space-y-3 max-w-4xl mx-auto">
-						<div class="h-4 bg-base-200 rounded w-24"></div>
-						<div class="h-10 bg-base-200 rounded"></div>
-						<div class="h-10 bg-base-200 rounded"></div>
-						<div class="h-10 bg-base-200 rounded"></div>
-					</div>
+<body>
+	{{ template "navbar" . }}
+	<main class="flex-1">
+		<div class="mx-auto px-4 pt-16 pb-12">
+			<div class="text-start mb-14 mx-auto max-w-2xl">
+				<h1 class="text-3xl font-bold tracking-tight mb-2">
+					Real-time outage detection
+				</h1>
+				<p class="text-sm text-base-content/50 mb-6">
+					Check if a service is actually down, or if it's just
+					you.
+				</p>
+				<div class="relative items-center">
+					<input id="q" name="q"
+						class="input w-full bg-base-200 border-base-content/10 font-mono text-sm focus:outline-none focus:ring placeholder:text-base-content/30"
+						placeholder="Search for a service..." autocomplete="off" spellcheck="false"
+						hx-get="/api/services/search" hx-trigger="load, input changed delay:300ms"
+						hx-target="#service-list" hx-swap="innerHTML" hx-indicator="#search-spinner" />
+					<span id="search-spinner" class="htmx-indicator absolute right-3 top-1/2 -translate-y-1/2">
+						<span class="loading loading-spinner loading-xs text-base-content/40"></span>
+					</span>
 				</div>
 			</div>
-		</main>
-		{{ template "footer" . }}
-	</body>
+
+			<div id="service-list" hx-get="/api/services"
+				hx-trigger="every 10s [document.getElementById('q').value === '' && !document.hidden], every 60s [document.getElementById('q').value === '' && document.hidden]"
+				hx-swap="innerHTML">
+				<div class="animate-pulse space-y-3 max-w-4xl mx-auto grid grid-cols-3 gap-3">
+					<div class="h-24 bg-base-200 rounded"></div>
+					<div class="h-24 bg-base-200 rounded"></div>
+					<div class="h-24 bg-base-200 rounded"></div>
+					<div class="h-24 bg-base-200 rounded"></div>
+					<div class="h-24 bg-base-200 rounded"></div>
+					<div class="h-24 bg-base-200 rounded"></div>
+					<div class="h-24 bg-base-200 rounded"></div>
+					<div class="h-24 bg-base-200 rounded"></div>
+					<div class="h-24 bg-base-200 rounded"></div>
+					<div class="h-24 bg-base-200 rounded"></div>
+					<div class="h-24 bg-base-200 rounded"></div>
+					<div class="h-24 bg-base-200 rounded"></div>
+				</div>
+			</div>
+		</div>
+	</main>
+	{{ template "footer" . }}
+</body>
+
 </html>
 {{ end }}
