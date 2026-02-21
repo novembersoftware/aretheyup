@@ -1,7 +1,7 @@
 {{ define "service-not-found" }}
 <div class="text-center py-16">
 	<h1 class="text-2xl font-bold mb-2">Service not found</h1>
-	<p class="text-base-content/50">{{ .Error }}</p>
+	<p class="text-base-content/50">{{ if .error }}{{ .error }}{{ else }}We could not find that service{{ end }}</p>
 	<a href="/" class="link text-primary">Back to home</a>
 </div>
 {{ end }}

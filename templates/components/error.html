@@ -1,0 +1,22 @@
+{{ define "error" }}
+<div class="max-w-2xl mx-auto py-8">
+	<div class="rounded-2xl border border-error/30 bg-error/10 p-5 sm:p-6">
+		<div class="flex items-start gap-3 sm:gap-4">
+			<div class="shrink-0 mt-0.5 text-error">
+				{{ lucide "triangle-alert" (dict "size" 18) }}
+			</div>
+			<div class="min-w-0">
+				<h2 class="text-base sm:text-lg font-semibold text-base-content">
+					We hit a temporary issue
+				</h2>
+				<p class="text-sm text-base-content/70 mt-1">
+					{{ if .error }}{{ .error }}{{ else }}Something went wrong while loading this data{{ end }}
+				</p>
+				<p class="text-xs text-base-content/50 mt-3">
+					Try again in a few seconds
+				</p>
+			</div>
+		</div>
+	</div>
+</div>
+{{ end }}
