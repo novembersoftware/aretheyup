@@ -3,7 +3,7 @@
 {{ if not .services }}
 <p class="text-sm text-base-content/40 text-center py-8">No services found.</p>
 {{ else }}
-<div class="grid grid-cols-4 gap-3 max-w-4xl mx-auto">
+<div class="grid grid-cols-3 gap-3 max-w-4xl mx-auto">
 	{{ range .services }}
 	<a href="/{{ .Slug }}" {{ if eq .Status "Issues Detected" }}
 		class="group flex flex-col gap-3 p-4 rounded-xl bg-error/10 border border-error/20 hover:bg-error/15 transition-all"
