@@ -90,7 +90,7 @@ func getService(c *gin.Context, store *storage.Storage) {
 		return
 	}
 
-	respondServiceCard(c, store, service)
+	respondServiceCard(c, store, service, false)
 }
 
 // POST /api/service/:slug/report
@@ -122,10 +122,10 @@ func createServiceReport(c *gin.Context, store *storage.Storage) {
 		return
 	}
 
-	respondServiceCard(c, store, service)
+	respondServiceCard(c, store, service, true)
 }
 
-func respondServiceCard(c *gin.Context, store *storage.Storage, service *structs.Service) {
+func respondServiceCard(c *gin.Context, store *storage.Storage, service *structs.Service, reported bool) {
 
 	reportWindowStart := time.Now().Add(-algorithm.ReportWindow)
 	recentReports, err := store.CountRecentReports(c.Request.Context(), service.ID, reportWindowStart)
@@ -161,7 +161,8 @@ func respondServiceCard(c *gin.Context, store *storage.Storage, service *structs
 	}
 
 	utils.Respond(c, 200, "service-card", gin.H{
-		"service": response,
+		"service":  response,
+		"reported": reported,
 	})
 }
 

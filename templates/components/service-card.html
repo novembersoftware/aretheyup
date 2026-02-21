@@ -1,23 +1,20 @@
 {{ define "service-card" }}
 <div>
 	<div class="flex items-center gap-4 mb-8 w-full">
-		<img
-			src="https://www.google.com/s2/favicons?domain={{ .service.URL }}&sz=64"
-			alt=""
-			class="w-12 h-12 rounded-lg"
-		/>
+		<img src="https://www.google.com/s2/favicons?domain={{ .service.URL }}&sz=64" alt=""
+			class="w-12 h-12 rounded-lg" />
 		<div class="w-full">
 			<div class="flex items-center justify-between w-full">
 				<h1 class="text-2xl font-bold">{{ .service.Name }}</h1>
-				<button
-					class="btn"
-					hx-post="/api/service/{{ .service.Slug }}/report"
-					hx-target="#service-card"
-					hx-swap="innerHTML"
-					hx-disabled-elt="this"
-				>
-					<span class="text-sm">I'm having issues</span>
-				</button>
+				<div class="flex items-center gap-2">
+					{{ if .reported }}
+					<span class="text-xs text-success font-medium">Thanks, report sent</span>
+					{{ end }}
+					<button class="btn" hx-post="/api/service/{{ .service.Slug }}/report" hx-target="#service-card"
+						hx-swap="innerHTML" hx-disabled-elt="this">
+						<span class="text-sm">I'm having issues</span>
+					</button>
+				</div>
 			</div>
 			<a href="{{ .service.URL }}" target="_blank">{{ .service.URL }}</a>
 		</div>
@@ -30,9 +27,7 @@
 				<div class="flex items-center gap-2">
 					{{ if eq .service.Status "Operational" }}
 					<span class="w-2 h-2 rounded-full bg-success"></span>
-					<span class="text-sm font-medium text-success"
-						>Operational</span
-					>
+					<span class="text-sm font-medium text-success">Operational</span>
 					{{ else if eq .service.Status "Issues Detected" }}
 					<span class="w-2 h-2 rounded-full bg-error"></span>
 					<span class="text-sm font-medium text-error">Issues Detected</span>
@@ -46,12 +41,8 @@
 			</div>
 			<div class="divider my-2"></div>
 			<div class="flex items-center justify-between">
-				<span class="text-sm text-base-content/50"
-					>Reports (last 30 min)</span
-				>
-				<span class="text-sm font-mono"
-					>{{ .service.RecentReports }}</span
-				>
+				<span class="text-sm text-base-content/50">Reports (last 30 min)</span>
+				<span class="text-sm font-mono">{{ .service.RecentReports }}</span>
 			</div>
 		</div>
 	</div>
