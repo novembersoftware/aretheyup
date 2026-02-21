@@ -5,15 +5,19 @@ import "time"
 // gorm schema definitions
 
 type Service struct {
-	ID          uint   `gorm:"primaryKey"`
-	Slug        string `gorm:"uniqueIndex;not null"`
-	Name        string `gorm:"not null"`
-	Description string
-	Category    string `gorm:"not null;default:'other'"`
-	HomepageURL string `gorm:"not null"`
-	Active      bool   `gorm:"not null;default:true"`
-	CreatedAt   time.Time
-	UpdatedAt   time.Time
+	ID           uint   `gorm:"primaryKey"`
+	Slug         string `gorm:"uniqueIndex;not null"`
+	Name         string `gorm:"not null"`
+	Description  string
+	Category     string `gorm:"not null;default:'other'"`
+	HomepageURL  string `gorm:"not null"`
+	Active       bool   `gorm:"not null;default:true"`
+	UserReports  []UserReport
+	ProbeResults []ProbeResult
+	Incidents    []Incident
+	ProbeConfig  ProbeConfig
+	CreatedAt    time.Time
+	UpdatedAt    time.Time
 }
 
 type UserReport struct {
