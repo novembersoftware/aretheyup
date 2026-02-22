@@ -1,38 +1,28 @@
 {{define "service.html"}}
 <!doctype html>
 <html lang="en" data-theme="dracula">
-	{{ template "head" . }}
+{{ template "head" . }}
 
-	<body>
-		{{ template "navbar" . }}
-		<main class="flex-1">
-			<div class="relative mx-auto px-4 pt-14 pb-14 max-w-6xl">
-				<div class="absolute inset-x-0 top-16 -z-10 mx-auto h-72 max-w-5xl rounded-full bg-gradient-to-r from-success/10 via-warning/5 to-error/10 blur-3xl"></div>
-				<div class="mb-8">
-					<a
-						href="/"
-						class="text-sm text-base-content/60 hover:text-base-content flex items-center gap-2"
-					>
-						{{ lucide "arrow-left" (dict "size" 16) }} Back to all
-						services
-					</a>
-				</div>
-
-				<div
-					id="service-card"
-					hx-get="/api/service/{{ .serviceSlug }}"
-					hx-trigger="load, every 10s [!document.hidden], every 60s [document.hidden]"
-					hx-swap="innerHTML"
-				>
-					<div class="animate-pulse space-y-4">
-						<div class="h-28 bg-base-200/70 rounded-2xl"></div>
-						<div class="h-44 bg-base-200/70 rounded-2xl"></div>
-						<div class="h-40 bg-base-200/70 rounded-2xl"></div>
-					</div>
-				</div>
+<body>
+	{{ template "navbar" . }}
+	<main class="flex-1">
+		<div class="relative mx-auto px-4 pt-14 pb-14 max-w-6xl">
+			<div
+				class="absolute inset-x-0 top-16 -z-10 mx-auto h-72 max-w-5xl rounded-full bg-gradient-to-r from-success/10 via-warning/5 to-error/10 blur-3xl">
 			</div>
-		</main>
-		{{ template "footer" . }}
-	</body>
+			<div class="mb-8">
+				<a href="/" class="text-sm text-base-content/60 hover:text-base-content flex items-center gap-2">
+					{{ lucide "arrow-left" (dict "size" 16) }} Back to all
+					services
+				</a>
+			</div>
+
+			<div id="service-card" hx-get="/api/service/{{ .serviceSlug }}"
+				hx-trigger="load, every 10s [!document.hidden], every 60s [document.hidden]" hx-swap="innerHTML"></div>
+		</div>
+	</main>
+	{{ template "footer" . }}
+</body>
+
 </html>
 {{ end }}

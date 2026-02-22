@@ -38,14 +38,7 @@
 			<div id="service-list" hx-get="/api/services"
 				hx-trigger="load, every 10s [document.getElementById('q').value === '' && !document.hidden], every 60s [document.getElementById('q').value === '' && document.hidden]"
 				hx-swap="innerHTML">
-				<div class="animate-pulse grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-4">
-					<div class="h-28 bg-base-200/70 rounded-2xl"></div>
-					<div class="h-28 bg-base-200/70 rounded-2xl"></div>
-					<div class="h-28 bg-base-200/70 rounded-2xl"></div>
-					<div class="h-28 bg-base-200/70 rounded-2xl"></div>
-					<div class="h-28 bg-base-200/70 rounded-2xl"></div>
-					<div class="h-28 bg-base-200/70 rounded-2xl"></div>
-				</div>
+				<div class="animate-pulse grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-4"></div>
 			</div>
 		</div>
 	</main>
