@@ -1,0 +1,58 @@
+services:
+  api:
+    container_name: aretheyup-api
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: aretheyup-api:prod
+    environment:
+      ENV: prod
+      API_PORT: 8080
+      DB_DSN: ${DB_DSN:-postgres://aretheyup:aretheyup@postgres:5432/aretheyup?sslmode=disable}
+      REDIS_URL: ${REDIS_URL:-redis://redis:6379/0}
+      ALLOWED_PAGE_ORIGINS: ${ALLOWED_PAGE_ORIGINS:-https://aretheyup.com,https://www.aretheyup.com}
+    ports:
+      - "8080:8080"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
+
+  postgres:
+    image: postgres:16-alpine
+    container_name: aretheyup-postgres
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-aretheyup}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-aretheyup}
+      POSTGRES_DB: ${POSTGRES_DB:-aretheyup}
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-aretheyup} -d ${POSTGRES_DB:-aretheyup}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
+  redis:
+    image: redis:7-alpine
+    container_name: aretheyup-redis
+    command: redis-server --appendonly yes
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
+volumes:
+  postgres_data:
+  redis_data:

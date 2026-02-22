@@ -1,0 +1,15 @@
+.git
+.gitignore
+.DS_Store
+
+.cursor
+
+.env
+.env.*
+!.env.example
+
+tmp
+
+docker-compose*.yml
+README.md
+LICENSE
