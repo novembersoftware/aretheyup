@@ -8,11 +8,8 @@
 {{ else }}
 <div class="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-4">
 	{{ range .services }}
-	<a href="/{{ .Slug }}" {{ if eq .Status "Issues Detected" }}
-		class="group rounded-2xl border border-error/30 bg-error/10 hover:bg-error/15 transition-all duration-200 p-4"
-		{{ else }}
-		class="group rounded-2xl border border-base-content/10 bg-base-100/85 hover:bg-base-100 transition-all duration-200 p-4"
-		{{ end }}>
+	<a href="/{{ .Slug }}"
+		class="group rounded-2xl border border-base-content/10 bg-base-100/85 hover:bg-base-100 transition-all duration-200 p-4">
 		<div class="flex items-start justify-between gap-3">
 			<div class="flex items-center gap-3 min-w-0">
 				<img src="https://www.google.com/s2/favicons?domain={{ .URL }}&sz=32" alt=""
