@@ -121,6 +121,19 @@ func getService(c *gin.Context, store *storage.Storage) {
 	respondServiceCard(c, store, service, false)
 }
 
+// GET /api/services/count
+func getServiceCount(c *gin.Context, store *storage.Storage) {
+	count, err := store.GetServiceCount(c.Request.Context())
+	if err != nil {
+		utils.Respond(c, 500, "error", gin.H{"error": "Failed to get service count"})
+		return
+	}
+	utils.Respond(c, 200, "service-count", gin.H{"count": count})
+}
+
+// ----- HELPERS -----
+
+// Respond with the service card for a given service
 func respondServiceCard(c *gin.Context, store *storage.Storage, service *structs.Service, reported bool) {
 	ctx := c.Request.Context()
 	now := time.Now().UTC()

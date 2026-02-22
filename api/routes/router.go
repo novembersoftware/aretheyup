@@ -20,4 +20,5 @@ func SetupAPIRoutes(r *gin.Engine, store *storage.Storage, publicRouteLimiter, r
 	g.GET("/services/search", publicRouteLimiter, func(c *gin.Context) { searchServices(c, store) })
 	g.GET("/service/:slug", publicRouteLimiter, func(c *gin.Context) { getService(c, store) })
 	g.POST("/service/:slug/report", websiteWriteGuard, reportRouteLimiter, func(c *gin.Context) { createServiceReport(c, store) })
+	g.GET("/services/count", publicRouteLimiter, func(c *gin.Context) { getServiceCount(c, store) })
 }

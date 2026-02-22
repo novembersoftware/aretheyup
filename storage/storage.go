@@ -124,6 +124,13 @@ func (s *Storage) CreateUserReport(ctx context.Context, report *structs.UserRepo
 	return nil
 }
 
+// GetServiceCount returns the total number of services.
+func (s *Storage) GetServiceCount(ctx context.Context) (int64, error) {
+	var count int64
+	result := s.db.WithContext(ctx).Model(&structs.Service{}).Count(&count)
+	return count, result.Error
+}
+
 // --- Manage TUI methods ---
 
 // ManageServiceRow is a row returned for the manage TUI list, including probe status.
