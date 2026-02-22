@@ -57,6 +57,7 @@ func (s *Storage) ListServices(ctx context.Context) ([]ServiceRow, error) {
 		SELECT s.id, s.slug, s.name, s.homepage_url, s.category,
 		       COUNT(ur.id) AS recent_report_count
 		FROM services s
+		WHERE s.active = true
 		LEFT JOIN user_reports ur ON ur.service_id = s.id AND ur.created_at > ?
 		GROUP BY s.id
 		ORDER BY recent_report_count DESC
@@ -81,6 +82,7 @@ func (s *Storage) SearchServices(ctx context.Context, query string) ([]ServiceRo
 		SELECT s.id, s.slug, s.name, s.homepage_url, s.category,
 		       COUNT(ur.id) AS recent_report_count
 		FROM services s
+		WHERE s.active = true
 		LEFT JOIN user_reports ur ON ur.service_id = s.id AND ur.created_at > ?
 		WHERE LOWER(s.name) LIKE LOWER(?)
 		GROUP BY s.id
