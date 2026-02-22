@@ -1,4 +1,4 @@
-package utils
+package structs
 
 type ServiceResponse struct {
 	ID            uint   `json:"id"`

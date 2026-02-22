@@ -12,9 +12,9 @@ import (
 	"github.com/novembersoftware/aretheyup/structs"
 )
 
-func BuildRegionalReportBreakdown(regionalCounts []storage.RegionalReportCount, total int64) []RegionalReportResponse {
+func BuildRegionalReportBreakdown(regionalCounts []storage.RegionalReportCount, total int64) []structs.RegionalReportResponse {
 	if len(regionalCounts) == 0 {
-		return []RegionalReportResponse{}
+		return []structs.RegionalReportResponse{}
 	}
 
 	denominator := float64(total)
@@ -27,13 +27,13 @@ func BuildRegionalReportBreakdown(regionalCounts []storage.RegionalReportCount, 
 		denominator = 1
 	}
 
-	response := make([]RegionalReportResponse, len(regionalCounts))
+	response := make([]structs.RegionalReportResponse, len(regionalCounts))
 	for i, row := range regionalCounts {
 		pct := int(math.Round((float64(row.Count) / denominator) * 100))
 		if pct == 0 && row.Count > 0 {
 			pct = 1
 		}
-		response[i] = RegionalReportResponse{
+		response[i] = structs.RegionalReportResponse{
 			Region:  row.Region,
 			Count:   row.Count,
 			Percent: pct,
@@ -43,7 +43,7 @@ func BuildRegionalReportBreakdown(regionalCounts []storage.RegionalReportCount, 
 	return response
 }
 
-func BuildServiceResponses(c *gin.Context, store *storage.Storage, rows []storage.ServiceRow) ([]ServiceResponse, error) {
+func BuildServiceResponses(c *gin.Context, store *storage.Storage, rows []storage.ServiceRow) ([]structs.ServiceResponse, error) {
 	serviceIDs := make([]uint, 0, len(rows))
 	for _, row := range rows {
 		serviceIDs = append(serviceIDs, row.ID)
@@ -60,13 +60,21 @@ func BuildServiceResponses(c *gin.Context, store *storage.Storage, rows []storag
 		return nil, err
 	}
 
-	response := make([]ServiceResponse, len(rows))
+	return buildServiceResponsesFromData(rows, baselines, probeStats), nil
+}
+
+func buildServiceResponsesFromData(
+	rows []storage.ServiceRow,
+	baselines map[uint]structs.ServiceBaseline,
+	probeStats map[uint]storage.ProbeStats,
+) []structs.ServiceResponse {
+	response := make([]structs.ServiceResponse, len(rows))
 	for i, row := range rows {
 		baseline := baselines[row.ID]
 		probe := probeStats[row.ID]
 		status := DetermineStatus(row.RecentReportCount, &baseline, probe.RecentProbeTotal, probe.RecentProbeFailures)
 
-		response[i] = ServiceResponse{
+		response[i] = structs.ServiceResponse{
 			ID:            row.ID,
 			Slug:          row.Slug,
 			Name:          row.Name,
@@ -78,17 +86,22 @@ func BuildServiceResponses(c *gin.Context, store *storage.Storage, rows []storag
 		}
 	}
 
-	return response, nil
+	return response
 }
 
-func BuildReportHistogram(now time.Time, buckets []storage.ReportBucket, baseline *structs.ServiceBaseline, currentStatus algorithm.Status) []ReportBucketResponse {
+func BuildReportHistogram(
+	now time.Time,
+	buckets []storage.ReportBucket,
+	baseline *structs.ServiceBaseline,
+	currentStatus algorithm.Status,
+) []structs.ReportBucketResponse {
 	byStart := make(map[int64]int64, len(buckets))
 	for _, bucket := range buckets {
 		byStart[bucket.Start.UTC().Unix()] = bucket.Count
 	}
 
 	start := now.UTC().Truncate(30 * time.Minute).Add(-47 * 30 * time.Minute)
-	points := make([]ReportBucketResponse, 0, 48)
+	points := make([]structs.ReportBucketResponse, 0, 48)
 	maxCount := int64(1)
 
 	for i := 0; i < 48; i++ {
@@ -98,7 +111,7 @@ func BuildReportHistogram(now time.Time, buckets []storage.ReportBucket, baselin
 			maxCount = count
 		}
 
-		points = append(points, ReportBucketResponse{
+		points = append(points, structs.ReportBucketResponse{
 			Label: bucketTime.Format("3:04 PM"),
 			Count: count,
 		})
@@ -142,7 +155,14 @@ func BuildReportHistogram(now time.Time, buckets []storage.ReportBucket, baselin
 	return points
 }
 
-func BuildUptimeDays(windowStart time.Time, totalDays int, now time.Time, incidents []structs.Incident, dailyReports []storage.DailyReportCount, currentStatus algorithm.Status) ([]UptimeDayResponse, float64, int, int) {
+func BuildUptimeDays(
+	windowStart time.Time,
+	totalDays int,
+	now time.Time,
+	incidents []structs.Incident,
+	dailyReports []storage.DailyReportCount,
+	currentStatus algorithm.Status,
+) ([]structs.UptimeDayResponse, float64, int, int) {
 	incidentDays := map[string]bool{}
 	reportDays := map[string]int64{}
 
@@ -173,7 +193,7 @@ func BuildUptimeDays(windowStart time.Time, totalDays int, now time.Time, incide
 		}
 	}
 
-	days := make([]UptimeDayResponse, 0, totalDays)
+	days := make([]structs.UptimeDayResponse, 0, totalDays)
 	upDays := 0
 	outageDays := 0
 	elevatedDays := 0
@@ -197,7 +217,7 @@ func BuildUptimeDays(windowStart time.Time, totalDays int, now time.Time, incide
 			upDays++
 		}
 
-		days = append(days, UptimeDayResponse{Label: label, Level: level})
+		days = append(days, structs.UptimeDayResponse{Label: label, Level: level})
 	}
 
 	if currentStatus == algorithm.StatusIssuesDetected && len(days) > 0 {
@@ -220,12 +240,12 @@ func BuildUptimeDays(windowStart time.Time, totalDays int, now time.Time, incide
 	return days, uptimePercent, outageDays, elevatedDays
 }
 
-func BuildIncidentTimeline(incidents []structs.Incident, now time.Time) []IncidentEntryResponse {
+func BuildIncidentTimeline(incidents []structs.Incident, now time.Time) []structs.IncidentEntryResponse {
 	if len(incidents) == 0 {
-		return []IncidentEntryResponse{}
+		return []structs.IncidentEntryResponse{}
 	}
 
-	items := make([]IncidentEntryResponse, 0, len(incidents))
+	items := make([]structs.IncidentEntryResponse, 0, len(incidents))
 	for _, incident := range incidents {
 		start := incident.StartedAt.UTC()
 		end := now.UTC()
@@ -237,7 +257,7 @@ func BuildIncidentTimeline(incidents []structs.Incident, now time.Time) []Incide
 			resolvedLabel = incident.ResolvedAt.UTC().Format("Jan 2, 3:04 PM MST")
 		}
 
-		items = append(items, IncidentEntryResponse{
+		items = append(items, structs.IncidentEntryResponse{
 			StartedAtLabel:  start.Format("Jan 2, 3:04 PM MST"),
 			ResolvedAtLabel: resolvedLabel,
 			DurationLabel:   formatDuration(end.Sub(start)),
@@ -248,7 +268,7 @@ func BuildIncidentTimeline(incidents []structs.Incident, now time.Time) []Incide
 	return items
 }
 
-func reportLevelThresholds(points []ReportBucketResponse) (float64, float64) {
+func reportLevelThresholds(points []structs.ReportBucketResponse) (float64, float64) {
 	nonZero := make([]int64, 0, len(points))
 	for _, p := range points {
 		if p.Count > 0 {

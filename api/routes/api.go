@@ -60,21 +60,6 @@ func searchServices(c *gin.Context, store *storage.Storage) {
 	})
 }
 
-// GET /api/service/:slug
-func getService(c *gin.Context, store *storage.Storage) {
-	slug := c.Param("slug")
-
-	service, err := store.GetServiceBySlug(c.Request.Context(), slug)
-	if err != nil {
-		utils.Respond(c, 404, "service-not-found", gin.H{
-			"error": "Service not found",
-		})
-		return
-	}
-
-	respondServiceCard(c, store, service, false)
-}
-
 // POST /api/service/:slug/report
 func createServiceReport(c *gin.Context, store *storage.Storage) {
 	slug := c.Param("slug")
@@ -106,6 +91,21 @@ func createServiceReport(c *gin.Context, store *storage.Storage) {
 	}
 
 	respondServiceCard(c, store, service, true)
+}
+
+// GET /api/service/:slug
+func getService(c *gin.Context, store *storage.Storage) {
+	slug := c.Param("slug")
+
+	service, err := store.GetServiceBySlug(c.Request.Context(), slug)
+	if err != nil {
+		utils.Respond(c, 404, "service-not-found", gin.H{
+			"error": "Service not found",
+		})
+		return
+	}
+
+	respondServiceCard(c, store, service, false)
 }
 
 func respondServiceCard(c *gin.Context, store *storage.Storage, service *structs.Service, reported bool) {
@@ -190,7 +190,7 @@ func respondServiceCard(c *gin.Context, store *storage.Storage, service *structs
 	}
 	windowUsage := int(math.Min(100, math.Round((float64(recentReports)/alertThreshold)*100)))
 
-	response := utils.ServiceDetailResponse{
+	response := structs.ServiceDetailResponse{
 		ID:                  service.ID,
 		Slug:                service.Slug,
 		Name:                service.Name,
