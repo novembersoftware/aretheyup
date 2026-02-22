@@ -22,7 +22,7 @@
 						<input id="q" name="q"
 							class="input h-12 w-full rounded-xl bg-base-200/60 border-base-content/10 font-mono text-sm placeholder:text-base-content/35"
 							placeholder="Search for a service..." autocomplete="off" spellcheck="false"
-							hx-get="/api/services/search" hx-trigger="load, input changed delay:300ms"
+							hx-get="/api/services/search" hx-trigger="input changed delay:300ms"
 							hx-target="#service-list" hx-swap="innerHTML" hx-indicator="#search-spinner" />
 						<span id="search-spinner" class="htmx-indicator absolute right-3 top-1/2 -translate-y-1/2">
 							<span class="loading loading-spinner loading-xs text-base-content/40"></span>
@@ -31,10 +31,9 @@
 				</div>
 			</div>
 
-			<div id="service-list" hx-get="/api/services"
-				hx-trigger="load, every 10s [document.getElementById('q').value === '' && !document.hidden], every 60s [document.getElementById('q').value === '' && document.hidden]"
+			<div id="service-list" hx-get="/api/services?page=1"
+				hx-trigger="load, every 10s [document.getElementById('q').value === '' && !document.hidden && window.scrollY < 160], every 60s [document.getElementById('q').value === '' && document.hidden]"
 				hx-swap="innerHTML">
-				<div class="animate-pulse grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-4"></div>
 			</div>
 		</div>
 	</main>

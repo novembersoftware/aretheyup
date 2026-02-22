@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"time"
 
 	"github.com/novembersoftware/aretheyup/algorithm"
@@ -13,10 +14,7 @@ import (
 	"gorm.io/gorm"
 )
 
-const (
-	listServicesCacheKey = "services:list:v1"
-	listServicesCacheTTL = 10 * time.Second
-)
+const listServicesCacheTTL = 10 * time.Second
 
 // Storage is the data access layer. It holds connections to all backing stores
 // and exposes methods for every data operation
@@ -44,10 +42,15 @@ type ServiceRow struct {
 	RecentReportCount int64
 }
 
-// ListServices returns all services ordered by recent report count (descending)
-func (s *Storage) ListServices(ctx context.Context) ([]ServiceRow, error) {
-	if cached, ok := s.getCachedServiceRows(ctx, listServicesCacheKey); ok {
-		return cached, nil
+// ListServices returns services ordered by recent report count (descending).
+func (s *Storage) ListServices(ctx context.Context, limit, offset int) ([]ServiceRow, error) {
+	cacheKey := ""
+	shouldUseCache := limit == 49 && offset == 0
+	if shouldUseCache {
+		cacheKey = listServicesCacheKey(limit, offset)
+		if cached, ok := s.getCachedServiceRows(ctx, cacheKey); ok {
+			return cached, nil
+		}
 	}
 
 	var rows []ServiceRow
@@ -60,13 +63,16 @@ func (s *Storage) ListServices(ctx context.Context) ([]ServiceRow, error) {
 		LEFT JOIN user_reports ur ON ur.service_id = s.id AND ur.created_at > ?
 		GROUP BY s.id
 		ORDER BY recent_report_count DESC
-		LIMIT 48
-	`, reportWindowStart).Scan(&rows)
+		LIMIT ?
+		OFFSET ?
+	`, reportWindowStart, limit, offset).Scan(&rows)
 	if result.Error != nil {
 		return rows, result.Error
 	}
 
-	s.setCachedServiceRows(ctx, listServicesCacheKey, rows)
+	if shouldUseCache {
+		s.setCachedServiceRows(ctx, cacheKey, rows)
+	}
 
 	return rows, nil
 }
@@ -236,7 +242,11 @@ func (s *Storage) invalidateServiceListCache(ctx context.Context) {
 		return
 	}
 
-	if err := s.redis.Del(ctx, listServicesCacheKey).Err(); err != nil {
-		log.Debug().Err(err).Str("cache_key", listServicesCacheKey).Msg("Failed to invalidate list cache")
+	if err := s.redis.Del(ctx, listServicesCacheKey(49, 0)).Err(); err != nil {
+		log.Debug().Err(err).Str("cache_key", listServicesCacheKey(49, 0)).Msg("Failed to invalidate list cache")
 	}
+}
+
+func listServicesCacheKey(limit, offset int) string {
+	return fmt.Sprintf("services:list:v2:limit:%d:offset:%d", limit, offset)
 }

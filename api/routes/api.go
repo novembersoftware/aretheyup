@@ -3,6 +3,7 @@ package routes
 import (
 	"fmt"
 	"math"
+	"strconv"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -14,13 +15,29 @@ import (
 	"github.com/novembersoftware/aretheyup/utils"
 )
 
-// GET /api/services
-// Returns the top 48 services ordered by recent report count (last 30 minutes)
+const servicesPerPage = 48
+
+// GET /api/services?page=1
+// Returns services ordered by recent report count (last 30 minutes) in paginated chunks.
 func getServices(c *gin.Context, store *storage.Storage) {
-	rows, err := store.ListServices(c.Request.Context())
+	page := 1
+	if rawPage := c.Query("page"); rawPage != "" {
+		parsedPage, err := strconv.Atoi(rawPage)
+		if err == nil && parsedPage > 0 {
+			page = parsedPage
+		}
+	}
+
+	offset := (page - 1) * servicesPerPage
+	rows, err := store.ListServices(c.Request.Context(), servicesPerPage+1, offset)
 	if err != nil {
 		utils.Respond(c, 500, "error", gin.H{"error": "Failed to fetch services"})
 		return
+	}
+
+	hasMore := len(rows) > servicesPerPage
+	if hasMore {
+		rows = rows[:servicesPerPage]
 	}
 
 	response, err := utils.BuildServiceResponses(c, store, rows)
@@ -31,6 +48,9 @@ func getServices(c *gin.Context, store *storage.Storage) {
 
 	utils.Respond(c, 200, "service-list", gin.H{
 		"services": response,
+		"append":   page > 1,
+		"hasMore":  hasMore,
+		"nextPage": page + 1,
 	})
 }
 
