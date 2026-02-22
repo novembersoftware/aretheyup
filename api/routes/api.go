@@ -72,15 +72,8 @@ func createServiceReport(c *gin.Context, store *storage.Storage) {
 		return
 	}
 
-	userAgent := c.GetHeader("User-Agent")
-	if userAgent == "" {
-		userAgent = "unknown"
-	}
-
 	report := structs.UserReport{
 		ServiceID:   service.ID,
-		IPAddress:   c.ClientIP(),
-		UserAgent:   userAgent,
 		Fingerprint: utils.RequestFingerprint(c),
 		Region:      utils.RequestRegion(c),
 	}

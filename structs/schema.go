@@ -39,10 +39,8 @@ type ServiceBaseline struct {
 type UserReport struct {
 	ID          uint   `gorm:"primaryKey"`
 	ServiceID   uint   `gorm:"not null;index"`
-	IPAddress   string `gorm:"not null"`
-	UserAgent   string `gorm:"not null"`
 	Fingerprint string `gorm:"not null"`
-	Region      string // inferred from IP, i.e. us-east, us-west, etc
+	Region      string `gorm:"not null;default:'Unknown'"`
 	CreatedAt   time.Time
 	UpdatedAt   time.Time
 }

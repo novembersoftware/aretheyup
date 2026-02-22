@@ -126,8 +126,6 @@ func SeedDB(db *gorm.DB, numServices int, clearDB bool) {
 		for j := 0; j < recentReportCount; j++ {
 			report := structs.UserReport{
 				ServiceID:   service.ID,
-				IPAddress:   fmt.Sprintf("%d.%d.%d.%d", r.Intn(256), r.Intn(256), r.Intn(256), r.Intn(256)),
-				UserAgent:   "Mozilla/5.0 (Seed Data)",
 				CreatedAt:   time.Now().Add(-time.Duration(r.Intn(600)) * time.Second),
 				Fingerprint: fmt.Sprintf("fp-%d-%d", service.ID, j),
 				Region:      regions[r.Intn(len(regions))],
@@ -142,8 +140,6 @@ func SeedDB(db *gorm.DB, numServices int, clearDB bool) {
 		for j := 0; j < remainingReports; j++ {
 			report := structs.UserReport{
 				ServiceID:   service.ID,
-				IPAddress:   fmt.Sprintf("%d.%d.%d.%d", r.Intn(256), r.Intn(256), r.Intn(256), r.Intn(256)),
-				UserAgent:   "Mozilla/5.0 (Seed Data)",
 				CreatedAt:   time.Now().Add(-time.Duration(r.Intn(168)+10) * time.Hour),
 				Fingerprint: fmt.Sprintf("fp-%d-%d-old", service.ID, j),
 				Region:      regions[r.Intn(len(regions))],
