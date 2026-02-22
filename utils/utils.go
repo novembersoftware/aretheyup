@@ -60,7 +60,7 @@ func BuildMeta(c *gin.Context, input structs.MetaInput) *structs.Meta {
 
 	themeColor := strings.TrimSpace(input.ThemeColor)
 	if themeColor == "" {
-		themeColor = "#F55"
+		themeColor = "#ff555d"
 	}
 
 	canonicalURL := buildAbsoluteURL(c, input.CanonicalPath)
