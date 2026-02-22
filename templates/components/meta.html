@@ -1,0 +1,103 @@
+<!-- This file is ugly but we should* never have to touch it -->
+
+{{ define "meta" }}
+{{ if .Meta.Description }}
+<meta name="description" content="{{ .Meta.Description }}" />
+{{ end }}
+{{ if .Meta.Keywords }}
+<meta name="keywords"
+    content="{{ range $i, $keyword := .Meta.Keywords }}{{ if $i }}, {{ end }}{{ $keyword }}{{ end }}" />
+{{ end }}
+{{ if .Meta.Author }}
+<meta name="author" content="{{ .Meta.Author }}" />
+{{ end }}
+{{ if .Meta.Robots }}
+<meta name="robots" content="{{ .Meta.Robots }}" />
+{{ end }}
+{{ if .Meta.ThemeColor }}
+<meta name="theme-color" content="{{ .Meta.ThemeColor }}" />
+{{ end }}
+{{ if .Meta.CanonicalURL }}
+<link rel="canonical" href="{{ .Meta.CanonicalURL }}" />
+{{ end }}
+{{ if .Meta.PrevURL }}
+<link rel="prev" href="{{ .Meta.PrevURL }}" />
+{{ end }}
+{{ if .Meta.NextURL }}
+<link rel="next" href="{{ .Meta.NextURL }}" />
+{{ end }}
+
+{{ if .Meta.OpenGraph.Title }}
+<meta property="og:title" content="{{ .Meta.OpenGraph.Title }}" />
+{{ end }}
+{{ if .Meta.OpenGraph.Description }}
+<meta property="og:description" content="{{ .Meta.OpenGraph.Description }}" />
+{{ end }}
+{{ if .Meta.OpenGraph.Type }}
+<meta property="og:type" content="{{ .Meta.OpenGraph.Type }}" />
+{{ end }}
+{{ if .Meta.OpenGraph.URL }}
+<meta property="og:url" content="{{ .Meta.OpenGraph.URL }}" />
+{{ end }}
+{{ if .Meta.OpenGraph.SiteName }}
+<meta property="og:site_name" content="{{ .Meta.OpenGraph.SiteName }}" />
+{{ end }}
+{{ if .Meta.OpenGraph.Locale }}
+<meta property="og:locale" content="{{ .Meta.OpenGraph.Locale }}" />
+{{ end }}
+{{ if .Meta.OpenGraph.ImageURL }}
+<meta property="og:image" content="{{ .Meta.OpenGraph.ImageURL }}" />
+{{ end }}
+{{ if .Meta.OpenGraph.ImageAlt }}
+<meta property="og:image:alt" content="{{ .Meta.OpenGraph.ImageAlt }}" />
+{{ end }}
+{{ if .Meta.OpenGraph.ImageWidth }}
+<meta property="og:image:width" content="{{ .Meta.OpenGraph.ImageWidth }}" />
+{{ end }}
+{{ if .Meta.OpenGraph.ImageHeight }}
+<meta property="og:image:height" content="{{ .Meta.OpenGraph.ImageHeight }}" />
+{{ end }}
+
+{{ if .Meta.Twitter.Card }}
+<meta name="twitter:card" content="{{ .Meta.Twitter.Card }}" />
+{{ end }}
+{{ if .Meta.Twitter.Site }}
+<meta name="twitter:site" content="{{ .Meta.Twitter.Site }}" />
+{{ end }}
+{{ if .Meta.Twitter.Creator }}
+<meta name="twitter:creator" content="{{ .Meta.Twitter.Creator }}" />
+{{ end }}
+{{ if .Meta.Twitter.Title }}
+<meta name="twitter:title" content="{{ .Meta.Twitter.Title }}" />
+{{ end }}
+{{ if .Meta.Twitter.Description }}
+<meta name="twitter:description" content="{{ .Meta.Twitter.Description }}" />
+{{ end }}
+{{ if .Meta.Twitter.ImageURL }}
+<meta name="twitter:image" content="{{ .Meta.Twitter.ImageURL }}" />
+{{ end }}
+{{ if .Meta.Twitter.ImageAlt }}
+<meta name="twitter:image:alt" content="{{ .Meta.Twitter.ImageAlt }}" />
+{{ end }}
+
+{{ if .Meta.PublishedTime }}
+<meta property="article:published_time" content="{{ .Meta.PublishedTime }}" />
+{{ end }}
+{{ if .Meta.ModifiedTime }}
+<meta property="article:modified_time" content="{{ .Meta.ModifiedTime }}" />
+<meta property="og:updated_time" content="{{ .Meta.ModifiedTime }}" />
+{{ end }}
+
+{{ if .Meta.ImageURL }}
+<meta itemprop="image" content="{{ .Meta.ImageURL }}" />
+{{ end }}
+{{ if .Meta.ImageAlt }}
+<meta name="image:alt" content="{{ .Meta.ImageAlt }}" />
+{{ end }}
+
+{{ if .Meta.JSONLD }}
+{{ range .Meta.JSONLD }}
+<script type="application/ld+json">{{ . }}</script>
+{{ end }}
+{{ end }}
+{{ end }}

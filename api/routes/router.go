@@ -6,16 +6,20 @@ import (
 	"github.com/novembersoftware/aretheyup/storage"
 )
 
-func SetupPageRoutes(r *gin.Engine, pageOriginGuard, publicRouteLimiter gin.HandlerFunc) {
+func SetupPageRoutes(r *gin.Engine, store *storage.Storage, pageOriginGuard, publicRouteLimiter gin.HandlerFunc) {
 	group := r.Group("")
 	group.Use(pageOriginGuard)
 	group.GET("/", publicRouteLimiter, getIndexPage)
-	group.GET("/:slug", publicRouteLimiter, getServicePage)
+	group.GET("/:slug", publicRouteLimiter, func(c *gin.Context) { getServicePage(c, store) })
 }
 
 func SetupAPIRoutes(r *gin.Engine, store *storage.Storage, publicRouteLimiter, reportRouteLimiter, websiteWriteGuard gin.HandlerFunc) {
 	g := r.Group("/api")
 	g.Use(middleware.OpenAPICORS())
+	g.Use(func(c *gin.Context) {
+		c.Header("X-Robots-Tag", "noindex, nofollow")
+		c.Next()
+	})
 	g.GET("/services", publicRouteLimiter, func(c *gin.Context) { getServices(c, store) })
 	g.GET("/services/search", publicRouteLimiter, func(c *gin.Context) { searchServices(c, store) })
 	g.GET("/service/:slug", publicRouteLimiter, func(c *gin.Context) { getService(c, store) })

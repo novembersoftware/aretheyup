@@ -33,6 +33,7 @@ func Start(store *storage.Storage) {
 
 	routes.SetupPageRoutes(
 		r,
+		store,
 		middleware.RequireAllowedPageOrigin(config.C.AllowedPageOrigins),
 		getRateLimiter("public", store),
 	)

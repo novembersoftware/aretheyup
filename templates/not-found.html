@@ -1,0 +1,21 @@
+{{define "not-found.html"}}
+<!doctype html>
+<html lang="en" data-theme="dracula">
+{{ template "head" . }}
+
+<body>
+	{{ template "navbar" . }}
+	<main class="flex-1">
+		<div class="relative mx-auto px-4 pt-14 pb-14 max-w-4xl">
+			<div class="rounded-2xl border border-base-content/10 bg-base-100/90 shadow-sm backdrop-blur p-8 text-center">
+				<h1 class="text-3xl font-bold tracking-tight">Page not found</h1>
+				<p class="text-base-content/60 mt-3">We could not find the page you requested.</p>
+				<a href="/" class="btn btn-soft mt-6">Back to home</a>
+			</div>
+		</div>
+	</main>
+	{{ template "footer" . }}
+</body>
+
+</html>
+{{ end }}
