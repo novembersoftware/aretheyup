@@ -23,6 +23,7 @@ type ServiceResponse struct {
 	Slug          string `json:"slug"`
 	Name          string `json:"name"`
 	URL           string `json:"url"`
+	IconURL       string `json:"icon_url"`
 	Category      string `json:"category"`
 	Status        string `json:"status"`
 	RecentReports int64  `json:"recent_reports"`
@@ -53,6 +54,7 @@ type ServiceDetailResponse struct {
 	Slug                string                   `json:"slug"`
 	Name                string                   `json:"name"`
 	URL                 string                   `json:"url"`
+	IconURL             string                   `json:"icon_url"`
 	Category            string                   `json:"category"`
 	Status              string                   `json:"status"`
 	RecentReports       int64                    `json:"recent_reports"`
@@ -256,6 +258,7 @@ func respondServiceCard(c *gin.Context, store *storage.Storage, service *structs
 		Slug:                service.Slug,
 		Name:                service.Name,
 		URL:                 service.HomepageURL,
+		IconURL:             fmt.Sprintf("https://s2.googleusercontent.com/s2/favicons?sz=64&domain=%s", service.HomepageURL),
 		Category:            service.Category,
 		Status:              string(status),
 		RecentReports:       recentReports,
@@ -404,6 +407,7 @@ func buildServiceResponses(c *gin.Context, store *storage.Storage, rows []storag
 			Slug:          row.Slug,
 			Name:          row.Name,
 			URL:           row.HomepageURL,
+			IconURL:       fmt.Sprintf("https://s2.googleusercontent.com/s2/favicons?sz=64&domain=%s", row.HomepageURL),
 			Category:      row.Category,
 			Status:        string(status),
 			RecentReports: row.RecentReportCount,

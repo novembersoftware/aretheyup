@@ -33,8 +33,7 @@
 			</div>
 			<div class="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
 				<div class="flex items-start gap-4 min-w-0">
-					<img src="https://www.google.com/s2/favicons?domain={{ .service.URL }}&sz=64" alt=""
-						class="w-12 h-12 mt-1 rounded-sm" />
+					<img src="{{ .service.IconURL }}" alt="" class="w-12 h-12 mt-1 rounded-sm" />
 					<div class="min-w-0">
 						<h1 class="text-2xl sm:text-3xl font-bold tracking-tight truncate">{{ .service.Name }}</h1>
 						<a href="{{ .service.URL }}" target="_blank"
