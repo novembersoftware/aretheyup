@@ -10,6 +10,8 @@ func SetupPageRoutes(r *gin.Engine, store *storage.Storage, pageOriginGuard, pub
 	group := r.Group("")
 	group.Use(pageOriginGuard)
 	group.GET("/", publicRouteLimiter, getIndexPage)
+	group.GET("/robots.txt", publicRouteLimiter, getRobotsTxt)
+	group.GET("/sitemap.xml", publicRouteLimiter, func(c *gin.Context) { getSitemapXML(c, store) })
 	group.GET("/:slug", publicRouteLimiter, func(c *gin.Context) { getServicePage(c, store) })
 }
 

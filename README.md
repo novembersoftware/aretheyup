@@ -153,6 +153,12 @@ This keeps incident history aligned with the status algorithm without relying on
 - 100% anonymous
 - Free for the public page, paid API (?)
 
+## SEO Crawling
+
+- `GET /robots.txt` allows all page crawling and disallows `/api/`
+- `GET /sitemap.xml` includes `/` and all active service pages (`/:slug`)
+- Sitemap links are generated from `SITE_BASE_URL`, so set it to your production domain
+
 ## License
 
 MIT License, see [LICENSE](./LICENSE) for details.

@@ -42,6 +42,11 @@ type ServiceRow struct {
 	RecentReportCount int64
 }
 
+type SitemapServiceRow struct {
+	Slug      string
+	UpdatedAt time.Time
+}
+
 // ListServices returns services ordered by recent report count (descending).
 func (s *Storage) ListServices(ctx context.Context, limit, offset int) ([]ServiceRow, error) {
 	cacheKey := ""
@@ -129,6 +134,17 @@ func (s *Storage) GetServiceCount(ctx context.Context) (int64, error) {
 	var count int64
 	result := s.db.WithContext(ctx).Model(&structs.Service{}).Count(&count)
 	return count, result.Error
+}
+
+func (s *Storage) ListActiveServicesForSitemap(ctx context.Context) ([]SitemapServiceRow, error) {
+	var rows []SitemapServiceRow
+	result := s.db.WithContext(ctx).
+		Model(&structs.Service{}).
+		Select("slug, updated_at").
+		Where("active = ?", true).
+		Order("slug ASC").
+		Find(&rows)
+	return rows, result.Error
 }
 
 // --- Manage TUI methods ---
