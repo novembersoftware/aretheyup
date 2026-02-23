@@ -53,6 +53,19 @@ func randomSlug(r *rand.Rand) string {
 	return string(b)
 }
 
+func randomTimeBetween(r *rand.Rand, start, end time.Time) time.Time {
+	if !end.After(start) {
+		return start
+	}
+
+	seconds := int(end.Sub(start).Seconds())
+	if seconds <= 1 {
+		return start
+	}
+
+	return start.Add(time.Duration(r.Intn(seconds)) * time.Second)
+}
+
 // SeedDB populates the database with fake data for development
 func SeedDB(db *gorm.DB, numServices int, clearDB bool) {
 	if config.IsProd() {
@@ -69,6 +82,7 @@ func SeedDB(db *gorm.DB, numServices int, clearDB bool) {
 	}
 
 	r := rand.New(rand.NewSource(time.Now().UnixNano()))
+	now := time.Now().UTC()
 
 	categories := []string{"social", "streaming", "cloud", "gaming", "finance", "shopping", "news", "other"}
 	homepageURLs := []string{
@@ -93,6 +107,9 @@ func SeedDB(db *gorm.DB, numServices int, clearDB bool) {
 		"https://xbox.com",
 		"https://reddit.com",
 	}
+	regions := []string{"US", "CA", "GB", "DE", "BR", "AU", "IN"}
+
+	reportSequence := 0
 
 	for i := 0; i < numServices; i++ {
 		category := categories[r.Intn(len(categories))]
@@ -103,6 +120,7 @@ func SeedDB(db *gorm.DB, numServices int, clearDB bool) {
 			Slug:        randomSlug(r),
 			HomepageURL: homepage,
 			Category:    category,
+			Description: fmt.Sprintf("Live status and outage reports for Service %d.", i+1),
 		}
 
 		if err := db.Create(&service).Error; err != nil {
@@ -111,43 +129,121 @@ func SeedDB(db *gorm.DB, numServices int, clearDB bool) {
 		}
 		log.Info().Msgf("Created service %d/%d", i+1, numServices)
 
-		numReports := r.Intn(20) + 1
+		severityBand := i % 5
 		var recentReportCount int
-		switch i % 5 {
+		var historicalReportCount int
+		var incidentCount int
+
+		switch severityBand {
 		case 0:
 			recentReportCount = r.Intn(5) + 10
+			historicalReportCount = r.Intn(200) + 220
+			incidentCount = r.Intn(8) + 8
 		case 1:
 			recentReportCount = r.Intn(4) + 6
+			historicalReportCount = r.Intn(120) + 140
+			incidentCount = r.Intn(6) + 4
 		default:
 			recentReportCount = r.Intn(3)
+			historicalReportCount = r.Intn(80) + 40
+			incidentCount = r.Intn(3) + 1
 		}
 
-		regions := []string{"US", "CA", "GB", "DE", "BR", "AU", "IN"}
+		reports := make([]structs.UserReport, 0, recentReportCount+historicalReportCount+(incidentCount*24))
+		incidents := make([]structs.Incident, 0, incidentCount)
 
+		// Reports in the current algorithm window (last 30 min).
 		for j := 0; j < recentReportCount; j++ {
-			report := structs.UserReport{
+			reportSequence++
+			createdAt := now.Add(-time.Duration(r.Intn(30*60)) * time.Second)
+			reports = append(reports, structs.UserReport{
 				ServiceID:   service.ID,
-				CreatedAt:   time.Now().Add(-time.Duration(r.Intn(600)) * time.Second),
-				Fingerprint: fmt.Sprintf("fp-%d-%d", service.ID, j),
+				CreatedAt:   createdAt,
+				UpdatedAt:   createdAt,
+				Fingerprint: fmt.Sprintf("fp-%d-%d", service.ID, reportSequence),
 				Region:      regions[r.Intn(len(regions))],
+			})
+		}
+
+		// Historical non-incident reports over the last 120 days (excluding the recent 30-minute window).
+		historicalStart := now.AddDate(0, 0, -120)
+		historicalEnd := now.Add(-31 * time.Minute)
+		for j := 0; j < historicalReportCount; j++ {
+			reportSequence++
+			createdAt := randomTimeBetween(r, historicalStart, historicalEnd)
+			reports = append(reports, structs.UserReport{
+				ServiceID:   service.ID,
+				CreatedAt:   createdAt,
+				UpdatedAt:   createdAt,
+				Fingerprint: fmt.Sprintf("fp-%d-%d", service.ID, reportSequence),
+				Region:      regions[r.Intn(len(regions))],
+			})
+		}
+
+		// Historical incidents distributed through the same 120-day period.
+		cursor := historicalStart
+		for j := 0; j < incidentCount; j++ {
+			gapHours := r.Intn(10*24) + 12
+			startedAt := cursor.Add(time.Duration(gapHours) * time.Hour)
+			if startedAt.After(now.Add(-90 * time.Minute)) {
+				break
 			}
 
-			if err := db.Create(&report).Error; err != nil {
-				log.Error().Err(err).Msg("Failed to create report")
+			durationMinutes := r.Intn(240) + 20
+			resolvedAtValue := startedAt.Add(time.Duration(durationMinutes) * time.Minute)
+			if resolvedAtValue.After(now) {
+				resolvedAtValue = now.Add(-30 * time.Minute)
+			}
+
+			var resolvedAt *time.Time
+			if severityBand == 0 && j == incidentCount-1 && r.Intn(100) < 20 {
+				resolvedAt = nil
+			} else {
+				resolvedCopy := resolvedAtValue
+				resolvedAt = &resolvedCopy
+			}
+
+			incidents = append(incidents, structs.Incident{
+				ServiceID:  service.ID,
+				StartedAt:  startedAt,
+				ResolvedAt: resolvedAt,
+				CreatedAt:  startedAt,
+				UpdatedAt:  startedAt,
+			})
+
+			// Add clustered reports around each incident window to make outage periods visible.
+			spikeReports := r.Intn(18) + 8
+			if severityBand == 0 {
+				spikeReports += r.Intn(16)
+			}
+			incidentEnd := resolvedAtValue
+			if resolvedAt == nil {
+				incidentEnd = now
+			}
+			for k := 0; k < spikeReports; k++ {
+				reportSequence++
+				createdAt := randomTimeBetween(r, startedAt.Add(-20*time.Minute), incidentEnd.Add(45*time.Minute))
+				reports = append(reports, structs.UserReport{
+					ServiceID:   service.ID,
+					CreatedAt:   createdAt,
+					UpdatedAt:   createdAt,
+					Fingerprint: fmt.Sprintf("fp-%d-%d", service.ID, reportSequence),
+					Region:      regions[r.Intn(len(regions))],
+				})
+			}
+
+			cursor = resolvedAtValue
+		}
+
+		if len(incidents) > 0 {
+			if err := db.CreateInBatches(&incidents, 100).Error; err != nil {
+				log.Error().Err(err).Msg("Failed to create incidents")
 			}
 		}
 
-		remainingReports := numReports - recentReportCount
-		for j := 0; j < remainingReports; j++ {
-			report := structs.UserReport{
-				ServiceID:   service.ID,
-				CreatedAt:   time.Now().Add(-time.Duration(r.Intn(168)+10) * time.Hour),
-				Fingerprint: fmt.Sprintf("fp-%d-%d-old", service.ID, j),
-				Region:      regions[r.Intn(len(regions))],
-			}
-
-			if err := db.Create(&report).Error; err != nil {
-				log.Error().Err(err).Msg("Failed to create report")
+		if len(reports) > 0 {
+			if err := db.CreateInBatches(&reports, 500).Error; err != nil {
+				log.Error().Err(err).Msg("Failed to create reports")
 			}
 		}
 	}
