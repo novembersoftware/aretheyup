@@ -61,7 +61,7 @@ func SeedDB(db *gorm.DB, numServices int, clearDB bool) {
 	}
 
 	if clearDB {
-		err := db.Exec("DELETE FROM user_reports; DELETE FROM services").Error
+		err := db.Exec("TRUNCATE TABLE services CASCADE").Error
 		if err != nil {
 			log.Fatal().Err(err).Msg("Failed to clear database")
 		}
@@ -109,6 +109,7 @@ func SeedDB(db *gorm.DB, numServices int, clearDB bool) {
 			log.Error().Err(err).Msg("Failed to create service")
 			continue
 		}
+		log.Info().Msgf("Created service %d/%d", i+1, numServices)
 
 		numReports := r.Intn(20) + 1
 		var recentReportCount int
