@@ -22,6 +22,14 @@ func Respond(c *gin.Context, status int, component string, data interface{}) {
 	c.HTML(status, component, data)
 }
 
+func GetClientIP(c *gin.Context) string {
+	ip := c.GetHeader("CF-Connecting-IP")
+	if ip == "" {
+		ip = c.ClientIP()
+	}
+	return ip
+}
+
 func BuildMeta(c *gin.Context, input structs.MetaInput) *structs.Meta {
 	siteName := strings.TrimSpace(input.SiteName)
 	if siteName == "" {

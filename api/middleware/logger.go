@@ -4,6 +4,7 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
+	"github.com/novembersoftware/aretheyup/utils"
 	"github.com/rs/zerolog/log"
 )
 
@@ -27,7 +28,7 @@ func Logger(c *gin.Context) {
 		Str("request_id", c.GetString(RequestIDContextKey)).
 		Str("method", c.Request.Method).
 		Str("path", path).
-		Str("client_ip", c.ClientIP()).
+		Str("client_ip", utils.GetClientIP(c)).
 		Int("status", c.Writer.Status()).
 		Dur("latency", time.Since(start)).
 		Msg("Request completed")

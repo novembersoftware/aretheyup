@@ -52,7 +52,7 @@ func NewRateLimit(redis *r.Client, cfg RateLimitConfig) gin.HandlerFunc {
 			return
 		}
 
-		keyPart := stableHash(c.ClientIP())
+		keyPart := stableHash(utils.GetClientIP(c))
 		if cfg.KeyFunc != nil {
 			custom := strings.TrimSpace(cfg.KeyFunc(c))
 			if custom != "" {
@@ -191,7 +191,7 @@ func hitRateLimit(c *gin.Context, redis *r.Client, key string, window time.Durat
 }
 
 func reportRouteKeyPart(c *gin.Context) string {
-	fingerprint := stableHash(c.ClientIP() + "|" + c.GetHeader("User-Agent") + "|" + c.GetHeader("Accept-Language"))
+	fingerprint := stableHash(utils.GetClientIP(c) + "|" + c.GetHeader("User-Agent") + "|" + c.GetHeader("Accept-Language"))
 
 	return stableHash("report|" + c.Param("slug") + "|" + fingerprint)
 }

@@ -9,7 +9,7 @@ import (
 )
 
 func RequestFingerprint(c *gin.Context) string {
-	hash := sha256.Sum256([]byte(c.ClientIP() + "|" + c.GetHeader("User-Agent") + "|" + c.GetHeader("Accept-Language")))
+	hash := sha256.Sum256([]byte(GetClientIP(c) + "|" + c.GetHeader("User-Agent") + "|" + c.GetHeader("Accept-Language")))
 	return hex.EncodeToString(hash[:])
 }
 
