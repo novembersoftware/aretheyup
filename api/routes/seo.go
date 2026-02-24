@@ -51,9 +51,6 @@ func getSitemapXML(c *gin.Context, store *storage.Storage) {
 		if c.Request.TLS != nil {
 			scheme = "https"
 		}
-		if forwardedProto := strings.TrimSpace(c.GetHeader("X-Forwarded-Proto")); forwardedProto != "" {
-			scheme = forwardedProto
-		}
 		baseURL = scheme + "://" + c.Request.Host
 	}
 

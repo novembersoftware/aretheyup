@@ -221,10 +221,7 @@ func defaultClientKey(c *gin.Context) string {
 }
 
 func reportRouteKeyPart(c *gin.Context) string {
-	fingerprint := strings.TrimSpace(c.GetHeader("X-Fingerprint"))
-	if fingerprint == "" {
-		fingerprint = stableHash(c.ClientIP() + "|" + c.GetHeader("User-Agent") + "|" + c.GetHeader("Accept-Language"))
-	}
+	fingerprint := stableHash(c.ClientIP() + "|" + c.GetHeader("User-Agent") + "|" + c.GetHeader("Accept-Language"))
 
 	return stableHash("report|" + c.Param("slug") + "|" + fingerprint)
 }

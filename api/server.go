@@ -2,6 +2,7 @@ package api
 
 import (
 	"html/template"
+	"strings"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -18,6 +19,9 @@ func Start(store *storage.Storage) {
 		gin.SetMode(gin.ReleaseMode)
 	}
 	r := gin.New()
+	if err := configureTrustedProxies(r, config.C.TrustedProxies); err != nil {
+		log.Fatal().Err(err).Msg("Invalid TRUSTED_PROXIES configuration")
+	}
 
 	r.Use(gin.Recovery())
 	r.Use(middleware.RequestID())
@@ -46,6 +50,29 @@ func Start(store *storage.Storage) {
 	)
 
 	run(r)
+}
+
+func configureTrustedProxies(r *gin.Engine, trustedProxiesCSV string) error {
+	trustedProxies := parseTrustedProxiesCSV(trustedProxiesCSV)
+	if len(trustedProxies) == 0 {
+		return r.SetTrustedProxies(nil)
+	}
+
+	return r.SetTrustedProxies(trustedProxies)
+}
+
+func parseTrustedProxiesCSV(raw string) []string {
+	trustedProxies := make([]string, 0)
+	for value := range strings.SplitSeq(raw, ",") {
+		normalized := strings.TrimSpace(value)
+		if normalized == "" {
+			continue
+		}
+
+		trustedProxies = append(trustedProxies, normalized)
+	}
+
+	return trustedProxies
 }
 
 func run(r *gin.Engine) {

@@ -159,6 +159,13 @@ This keeps incident history aligned with the status algorithm without relying on
 - `GET /sitemap.xml` includes `/` and all active service pages (`/:slug`)
 - Sitemap links are generated from `SITE_BASE_URL`, so set it to your production domain
 
+## Security configuration
+
+- Set `TRUSTED_PROXIES` to the exact CIDRs/IPs for your edge and ingress proxies.
+- Leave `TRUSTED_PROXIES` empty to trust none (safest default).
+- For Cloudflare deployments, include Cloudflare edge CIDRs and keep them updated.
+- Keep `SITE_BASE_URL` set in production so generated absolute URLs do not depend on request headers.
+
 ## License
 
 MIT License, see [LICENSE](./LICENSE) for details.

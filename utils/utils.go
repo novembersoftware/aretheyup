@@ -125,9 +125,6 @@ func buildAbsoluteURL(c *gin.Context, raw string) string {
 		if c.Request != nil && c.Request.TLS != nil {
 			scheme = "https"
 		}
-		if forwardedProto := strings.TrimSpace(c.GetHeader("X-Forwarded-Proto")); forwardedProto != "" {
-			scheme = forwardedProto
-		}
 
 		host := ""
 		if c.Request != nil {
