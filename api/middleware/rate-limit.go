@@ -52,7 +52,7 @@ func NewRateLimit(redis *r.Client, cfg RateLimitConfig) gin.HandlerFunc {
 			return
 		}
 
-		keyPart := defaultClientKey(c)
+		keyPart := stableHash(c.ClientIP())
 		if cfg.KeyFunc != nil {
 			custom := strings.TrimSpace(cfg.KeyFunc(c))
 			if custom != "" {
@@ -118,32 +118,6 @@ func NewRateLimit(redis *r.Client, cfg RateLimitConfig) gin.HandlerFunc {
 
 		c.Next()
 	}
-}
-
-func GlobalRateLimit(redis *r.Client, limit int64, window time.Duration) gin.HandlerFunc {
-	return NewRateLimit(redis, RateLimitConfig{
-		Name:    "global",
-		Limit:   limit,
-		Window:  window,
-		Message: "Too many requests. Please try again shortly.",
-	})
-}
-
-func PublicRouteRateLimit(redis *r.Client, limit int64, window time.Duration) gin.HandlerFunc {
-	return NewRateLimit(redis, RateLimitConfig{
-		Name:    "public-route",
-		Limit:   limit,
-		Window:  window,
-		Message: "You're sending requests too quickly. Please slow down.",
-		ScopeFunc: func(c *gin.Context) string {
-			fullPath := c.FullPath()
-			if fullPath == "" {
-				fullPath = c.Request.URL.Path
-			}
-
-			return c.Request.Method + ":" + fullPath
-		},
-	})
 }
 
 func ReportRouteRateLimit(redis *r.Client, limit int64, window time.Duration) gin.HandlerFunc {
@@ -214,10 +188,6 @@ func hitRateLimit(c *gin.Context, redis *r.Client, key string, window time.Durat
 	}
 
 	return count, time.Duration(ttlMS) * time.Millisecond, nil
-}
-
-func defaultClientKey(c *gin.Context) string {
-	return stableHash(c.ClientIP())
 }
 
 func reportRouteKeyPart(c *gin.Context) string {

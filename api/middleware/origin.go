@@ -41,17 +41,38 @@ func RequireAllowedPageOrigin(allowedOriginsCSV string) gin.HandlerFunc {
 }
 
 func RequireWebsiteWriteOrigin(allowedOriginsCSV string) gin.HandlerFunc {
+	return requireWebsiteOrigin(allowedOriginsCSV, true)
+}
+
+func RequireWebsiteAPIOrigin(allowedOriginsCSV string) gin.HandlerFunc {
+	return requireWebsiteOrigin(allowedOriginsCSV, false)
+}
+
+func requireWebsiteOrigin(allowedOriginsCSV string, requireHTMX bool) gin.HandlerFunc {
 	validator := newOriginValidator(allowedOriginsCSV)
 
 	return func(c *gin.Context) {
-		if !isHTMXRequest(c) {
+		if requireHTMX && !isHTMXRequest(c) {
 			utils.Respond(c, http.StatusForbidden, "error", gin.H{"error": "Website request required"})
+			c.Abort()
+			return
+		}
+
+		fetchSite := strings.ToLower(strings.TrimSpace(c.GetHeader("Sec-Fetch-Site")))
+		if fetchSite != "" && fetchSite != "same-origin" && fetchSite != "same-site" && fetchSite != "none" {
+			utils.Respond(c, http.StatusForbidden, "error", gin.H{"error": "Cross-site request not allowed"})
 			c.Abort()
 			return
 		}
 
 		origin := normalizeOrigin(c.GetHeader("Origin"))
 		refererOrigin := originFromReferer(c.GetHeader("Referer"))
+
+		if origin == "" && refererOrigin == "" {
+			utils.Respond(c, http.StatusForbidden, "error", gin.H{"error": "Website origin required"})
+			c.Abort()
+			return
+		}
 
 		if !validator.matches(origin) && !validator.matches(refererOrigin) {
 			utils.Respond(c, http.StatusForbidden, "error", gin.H{"error": "Origin not allowed"})

@@ -27,7 +27,6 @@ func Start(store *storage.Storage) {
 	r.Use(middleware.RequestID())
 	r.Use(middleware.SecurityHeaders())
 	r.Use(middleware.Logger)
-	r.Use(getRateLimiter("global", store))
 
 	templ := template.Must(template.New("").Funcs(lucide.FuncMap()).ParseGlob("templates/*.html"))
 	templ = template.Must(templ.ParseGlob("templates/components/*.html"))
@@ -39,14 +38,16 @@ func Start(store *storage.Storage) {
 		r,
 		store,
 		middleware.RequireAllowedPageOrigin(config.C.AllowedPageOrigins),
-		getRateLimiter("public", store),
 	)
 	routes.SetupAPIRoutes(
 		r,
 		store,
-		getRateLimiter("public", store),
-		getRateLimiter("report", store),
-		middleware.RequireWebsiteWriteOrigin(config.C.AllowedPageOrigins),
+		middleware.ReportRouteRateLimit(
+			store.Redis(),
+			config.C.ReportRateLimitMaxRequests,
+			time.Duration(config.C.ReportRateLimitWindowSeconds)*time.Second,
+		),
+		middleware.RequireWebsiteAPIOrigin(config.C.AllowedPageOrigins),
 	)
 
 	run(r)
@@ -80,30 +81,5 @@ func run(r *gin.Engine) {
 	err := r.Run(":" + config.C.APIPort)
 	if err != nil {
 		log.Fatal().Err(err).Msg("Failed to start server")
-	}
-}
-
-func getRateLimiter(group string, store *storage.Storage) gin.HandlerFunc {
-	switch group {
-	case "global":
-		return middleware.GlobalRateLimit(
-			store.Redis(),
-			config.C.GlobalRateLimitMaxRequests,
-			time.Duration(config.C.GlobalRateLimitWindowSeconds)*time.Second,
-		)
-	case "public":
-		return middleware.PublicRouteRateLimit(
-			store.Redis(),
-			config.C.PublicRateLimitMaxRequests,
-			time.Duration(config.C.PublicRateLimitWindowSeconds)*time.Second,
-		)
-	case "report":
-		return middleware.ReportRouteRateLimit(
-			store.Redis(),
-			config.C.ReportRateLimitMaxRequests,
-			time.Duration(config.C.ReportRateLimitWindowSeconds)*time.Second,
-		)
-	default:
-		panic("invalid rate limiter group: " + group)
 	}
 }

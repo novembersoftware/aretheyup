@@ -11,8 +11,7 @@ import (
 
 func TestRequestFingerprint(t *testing.T) {
 	// Contract:
-	// - honor explicit client fingerprint
-	// - otherwise produce deterministic hash from request traits
+	// - produce deterministic hash from request traits
 	gin.SetMode(gin.TestMode)
 
 	w := httptest.NewRecorder()
@@ -21,19 +20,13 @@ func TestRequestFingerprint(t *testing.T) {
 	req.RemoteAddr = "203.0.113.10:54321"
 	c.Request = req
 
-	c.Request.Header.Set("X-Fingerprint", "client-provided")
-	if got := RequestFingerprint(c); got != "client-provided" {
-		t.Fatalf("RequestFingerprint(header) = %q, want client-provided", got)
-	}
-
-	c.Request.Header.Del("X-Fingerprint")
 	c.Request.Header.Set("User-Agent", "test-agent")
 	c.Request.Header.Set("Accept-Language", "en-US,en;q=0.9")
 
 	expectedHash := sha256.Sum256([]byte("203.0.113.10|test-agent|en-US,en;q=0.9"))
 	expected := hex.EncodeToString(expectedHash[:])
 	if got := RequestFingerprint(c); got != expected {
-		t.Fatalf("RequestFingerprint(fallback) = %q, want %q", got, expected)
+		t.Fatalf("RequestFingerprint() = %q, want %q", got, expected)
 	}
 }
 

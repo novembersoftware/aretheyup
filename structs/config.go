@@ -8,10 +8,6 @@ type Config struct {
 	SiteBaseURL                  string `env:"SITE_BASE_URL" envDefault:"http://localhost:8080"`
 	AllowedPageOrigins           string `env:"ALLOWED_PAGE_ORIGINS" envDefault:"http://localhost:8080"`
 	TrustedProxies               string `env:"TRUSTED_PROXIES"`
-	GlobalRateLimitMaxRequests   int64  `env:"GLOBAL_RATE_LIMIT_MAX_REQUESTS" envDefault:"600"`
-	GlobalRateLimitWindowSeconds int    `env:"GLOBAL_RATE_LIMIT_WINDOW_SECONDS" envDefault:"60"`
-	PublicRateLimitMaxRequests   int64  `env:"PUBLIC_RATE_LIMIT_MAX_REQUESTS" envDefault:"240"`
-	PublicRateLimitWindowSeconds int    `env:"PUBLIC_RATE_LIMIT_WINDOW_SECONDS" envDefault:"60"`
 	ReportRateLimitMaxRequests   int64  `env:"REPORT_RATE_LIMIT_MAX_REQUESTS" envDefault:"1"`
 	ReportRateLimitWindowSeconds int    `env:"REPORT_RATE_LIMIT_WINDOW_SECONDS" envDefault:"1800"`
 }

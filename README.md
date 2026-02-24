@@ -165,6 +165,7 @@ This keeps incident history aligned with the status algorithm without relying on
 - Leave `TRUSTED_PROXIES` empty to trust none (safest default).
 - For Cloudflare deployments, include Cloudflare edge CIDRs and keep them updated.
 - Keep `SITE_BASE_URL` set in production so generated absolute URLs do not depend on request headers.
+- API routes are website-gated: `/api/*` requests must include an allowed website `Origin` or `Referer`.
 
 ## License
 
