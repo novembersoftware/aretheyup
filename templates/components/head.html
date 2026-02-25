@@ -9,52 +9,6 @@
 	{{ template "meta" . }}
 	<script>
 		(function () {
-			function ensureToastContainer() {
-				var existing = document.getElementById("app-toast-container");
-				if (existing) {
-					return existing;
-				}
-
-				var container = document.createElement("div");
-				container.id = "app-toast-container";
-				container.className = "toast toast-top toast-center sm:toast-end z-[100] px-2 sm:px-0";
-				document.body.appendChild(container);
-				return container;
-			}
-
-			function showToast(message) {
-				var container = ensureToastContainer();
-				var toast = document.createElement("div");
-				toast.className = "alert bg-base-100/95 text-base-content border border-base-content/15 shadow-xl w-fit max-w-[22rem]";
-
-				var text = document.createElement("span");
-				text.className = "text-sm leading-snug";
-				text.textContent = message;
-				toast.appendChild(text);
-
-				container.appendChild(toast);
-
-				window.setTimeout(function () {
-					toast.classList.add("opacity-0", "translate-y-1", "transition-all", "duration-300");
-					window.setTimeout(function () {
-						toast.remove();
-					}, 300);
-				}, 4200);
-			}
-
-			function formatRetryAfter(seconds) {
-				if (!seconds || seconds < 60) {
-					return "less than a minute";
-				}
-
-				var minutes = Math.ceil(seconds / 60);
-				if (minutes === 1) {
-					return "about 1 minute";
-				}
-
-				return "about " + minutes + " minutes";
-			}
-
 			function markReportButtonAsReported() {
 				var reportButton = document.querySelector('[data-report-button="true"]');
 				if (!reportButton) {
@@ -79,7 +33,6 @@
 					var baseMessage = detail.message || "We already received your report for this service.";
 					var retryText = formatRetryAfter(detail.retry_after_seconds);
 					markReportButtonAsReported();
-					showToast(baseMessage + " Try again in " + retryText + ".");
 				});
 			});
 		})();
