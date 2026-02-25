@@ -32,6 +32,7 @@ func Start(store *storage.Storage) {
 	templ = template.Must(templ.ParseGlob("templates/components/*.html"))
 	r.SetHTMLTemplate(templ)
 
+	r.StaticFile("/favicon.ico", "./static/favicon.ico")
 	r.Static("/static", "./static")
 
 	routes.SetupPageRoutes(
