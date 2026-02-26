@@ -33,6 +33,7 @@ func Start(store *storage.Storage) {
 	r.SetHTMLTemplate(templ)
 
 	r.StaticFile("/favicon.ico", "./static/favicon.ico")
+	r.StaticFile("/og-image.png", "./static/og-image.png")
 	r.Static("/static", "./static")
 
 	routes.SetupPageRoutes(

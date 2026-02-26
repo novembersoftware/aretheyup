@@ -17,6 +17,7 @@ func getIndexPage(c *gin.Context) {
 			Description:   "Monitor live user-reported outages and service reliability in real time.",
 			CanonicalPath: "/",
 			Keywords:      []string{"service status", "outage monitor", "is it down", "downtime reports"},
+			ImageURL:      "/og-image.png",
 			ImageAlt:      "Are they up? service status monitor",
 		}),
 	})
@@ -33,6 +34,8 @@ func getServicePage(c *gin.Context, store *storage.Storage) {
 				Description:   "The page you requested could not be found.",
 				CanonicalPath: c.Request.URL.Path,
 				Robots:        "noindex,follow",
+				ImageURL:      "/og-image.png",
+				ImageAlt:      "Are they up? service status monitor",
 			}),
 		})
 		return
@@ -45,6 +48,7 @@ func getServicePage(c *gin.Context, store *storage.Storage) {
 			Description:   service.Description,
 			CanonicalPath: "/" + service.Slug,
 			Keywords:      []string{service.Name + " status", "is " + service.Name + " down", service.Name + " outage"},
+			ImageURL:      "/og-image.png",
 			ImageAlt:      service.Name + " status page",
 			ModifiedTime:  service.UpdatedAt.UTC().Format(time.RFC3339),
 		}),
