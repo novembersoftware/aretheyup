@@ -11,8 +11,10 @@
 				<p class="text-xs text-base-content/50 truncate mt-0.5">{{ .URL }}</p>
 			</div>
 		</div>
-		{{ if eq .Status "Issues Detected" }}
-		<span class="shrink-0 text-xs font-medium px-2 py-0.5 rounded-md bg-error/20 text-error">Issues Detected</span>
+		{{ if eq .Status "Outage" }}
+		<span class="shrink-0 text-xs font-medium px-2 py-0.5 rounded-md bg-error/20 text-error">Outage</span>
+		{{ else if eq .Status "Degraded" }}
+		<span class="shrink-0 text-xs font-medium px-2 py-0.5 rounded-md bg-warning/20 text-warning">Degraded</span>
 		{{ else }}
 		<span class="shrink-0 text-xs font-medium px-2 py-0.5 rounded-md bg-success/20 text-success">Operational</span>
 		{{ end }}

@@ -31,9 +31,9 @@ func TestToHourOfWeek(t *testing.T) {
 
 func TestDetermineStatus(t *testing.T) {
 	// Ensure wrapper behavior matches intended decision inputs:
-	// - mature baseline path can trigger issues at low report counts
+	// - mature baseline path can trigger outage at low report counts
 	// - nil baseline uses cold-start behavior
-	// - probe-only path can still trigger issues
+	// - probe-only path now degrades instead of opening outage
 	baseline := &structs.ServiceBaseline{
 		MeanReports:         0,
 		StdDevReports:       1,
@@ -43,8 +43,8 @@ func TestDetermineStatus(t *testing.T) {
 	}
 
 	gotWithBaseline := DetermineStatus(3, baseline, 0, 0)
-	if gotWithBaseline != algorithm.StatusIssuesDetected {
-		t.Fatalf("DetermineStatus(with baseline) = %q, want %q", gotWithBaseline, algorithm.StatusIssuesDetected)
+	if gotWithBaseline != algorithm.StatusOutage {
+		t.Fatalf("DetermineStatus(with baseline) = %q, want %q", gotWithBaseline, algorithm.StatusOutage)
 	}
 
 	gotWithoutBaseline := DetermineStatus(3, nil, 0, 0)
@@ -53,7 +53,7 @@ func TestDetermineStatus(t *testing.T) {
 	}
 
 	gotProbeOnly := DetermineStatus(0, nil, 5, 4)
-	if gotProbeOnly != algorithm.StatusIssuesDetected {
-		t.Fatalf("DetermineStatus(probe-only) = %q, want %q", gotProbeOnly, algorithm.StatusIssuesDetected)
+	if gotProbeOnly != algorithm.StatusDegraded {
+		t.Fatalf("DetermineStatus(probe-only) = %q, want %q", gotProbeOnly, algorithm.StatusDegraded)
 	}
 }

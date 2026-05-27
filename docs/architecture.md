@@ -63,7 +63,7 @@ The API uses the same algorithm path for both list and detail responses through 
 
 ### Incident tracker
 
-`workers/incidents.go` recalculates current service state once per minute and opens or resolves incidents based on transitions into and out of `Issues Detected`.
+`workers/incidents.go` recalculates current service state once per minute and opens or resolves incidents based on transitions into and out of `Outage`. Probe-only `Degraded` states are visible in the UI but do not create incident records.
 
 ## Storage and data model
 

@@ -20,9 +20,11 @@ type baselineBucket struct {
 }
 
 type probeBaselineBucket struct {
-	HourOfWeek          int
-	ProbeFailureRate    float64
-	ProbeFailureSamples int
+	HourOfWeek           int
+	ProbeFailureRate     float64
+	ProbeFailureSamples  int
+	ProbeLatencyMedianMs float64 `gorm:"column:probe_latency_median_ms"`
+	ProbeLatencySamples  int     `gorm:"column:probe_latency_samples"`
 }
 
 type ProbeStats struct {
@@ -110,7 +112,13 @@ func (s *Storage) refreshServiceBaselines(ctx context.Context, serviceID uint, c
 		SELECT
 			(EXTRACT(DOW FROM created_at)::int * 24 + EXTRACT(HOUR FROM created_at)::int) AS hour_of_week,
 			(SUM(CASE WHEN success = false THEN 1 ELSE 0 END)::float8 / COUNT(*)) AS probe_failure_rate,
-			COUNT(*)::int AS probe_failure_samples
+			COUNT(*)::int AS probe_failure_samples,
+			COALESCE(
+				PERCENTILE_CONT(0.5) WITHIN GROUP (ORDER BY response_time_ms)
+				FILTER (WHERE success = true AND response_time_ms IS NOT NULL),
+				0
+			)::float8 AS probe_latency_median_ms,
+			COUNT(response_time_ms) FILTER (WHERE success = true AND response_time_ms IS NOT NULL)::int AS probe_latency_samples
 		FROM probe_results
 		WHERE service_id = ?
 			AND created_at >= ?
@@ -132,13 +140,15 @@ func (s *Storage) refreshServiceBaselines(ctx context.Context, serviceID uint, c
 	for _, b := range userBuckets {
 		probe := probeByHour[b.HourOfWeek]
 		rows = append(rows, structs.ServiceBaseline{
-			ServiceID:           serviceID,
-			HourOfWeek:          b.HourOfWeek,
-			MeanReports:         b.MeanReports,
-			StdDevReports:       b.StdDevReports,
-			SampleCount:         b.SampleCount,
-			ProbeFailureRate:    probe.ProbeFailureRate,
-			ProbeFailureSamples: probe.ProbeFailureSamples,
+			ServiceID:            serviceID,
+			HourOfWeek:           b.HourOfWeek,
+			MeanReports:          b.MeanReports,
+			StdDevReports:        b.StdDevReports,
+			SampleCount:          b.SampleCount,
+			ProbeFailureRate:     probe.ProbeFailureRate,
+			ProbeFailureSamples:  probe.ProbeFailureSamples,
+			ProbeLatencyMedianMs: probe.ProbeLatencyMedianMs,
+			ProbeLatencySamples:  probe.ProbeLatencySamples,
 		})
 	}
 
@@ -151,6 +161,8 @@ func (s *Storage) refreshServiceBaselines(ctx context.Context, serviceID uint, c
 			"sample_count",
 			"probe_failure_rate",
 			"probe_failure_samples",
+			"probe_latency_median_ms",
+			"probe_latency_samples",
 			"updated_at",
 		}),
 	}).Create(&rows).Error

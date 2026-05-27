@@ -8,7 +8,7 @@ import "testing"
 //   - BCC (Base Choice Coverage): keep one representative "base" behavior and
 //     vary one important dimension at a time to make failures easy to diagnose.
 
-func TestHasUserReportProblem(t *testing.T) {
+func TestHasUserReportOutage(t *testing.T) {
 	// User-report path partitions:
 	//   1) cold-start vs mature baseline
 	//   2) threshold boundaries for cold-start reports
@@ -91,9 +91,67 @@ func TestHasUserReportProblem(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got := hasUserReportProblem(tt.signals)
+			got := hasUserReportOutage(tt.signals)
 			if got != tt.want {
-				t.Fatalf("hasUserReportProblem() = %v, want %v", got, tt.want)
+				t.Fatalf("hasUserReportOutage() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestHasReportSupportAnomaly(t *testing.T) {
+	tests := []struct {
+		name    string
+		signals Signals
+		want    bool
+	}{
+		{
+			name: "cold start never produces support anomaly",
+			signals: Signals{
+				ReportBaselineWeeks:  minBaselineWeeks - 1,
+				RecentReports:        8,
+				ReportBaselineMean:   3,
+				ReportBaselineStdDev: 1,
+			},
+			want: false,
+		},
+		{
+			name: "mature baseline below support z score stays false",
+			signals: Signals{
+				ReportBaselineWeeks:  minBaselineWeeks,
+				RecentReports:        5,
+				ReportBaselineMean:   4.5,
+				ReportBaselineStdDev: 1,
+			},
+			want: false,
+		},
+		{
+			name: "mature baseline at support z score and above mean is true",
+			signals: Signals{
+				ReportBaselineWeeks:  minBaselineWeeks,
+				RecentReports:        4,
+				ReportBaselineMean:   3,
+				ReportBaselineStdDev: 1,
+			},
+			want: true,
+		},
+		{
+			name: "stddev floor still applies on support anomaly path",
+			signals: Signals{
+				ReportBaselineWeeks:  minBaselineWeeks,
+				RecentReports:        2,
+				ReportBaselineMean:   1,
+				ReportBaselineStdDev: 0.2,
+			},
+			want: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := hasReportSupportAnomaly(tt.signals)
+			if got != tt.want {
+				t.Fatalf("hasReportSupportAnomaly() = %v, want %v", got, tt.want)
 			}
 		})
 	}
@@ -213,8 +271,6 @@ func TestHasProbeProblem(t *testing.T) {
 }
 
 func TestDetermineStatus(t *testing.T) {
-	// Top-level status is OR logic over user and probe signals:
-	// none, user-only, probe-only, and both.
 	tests := []struct {
 		name    string
 		signals Signals
@@ -235,7 +291,7 @@ func TestDetermineStatus(t *testing.T) {
 			want: StatusOperational,
 		},
 		{
-			name: "user signal alone triggers issues detected",
+			name: "user outage alone triggers outage",
 			signals: Signals{
 				ReportBaselineWeeks:      minBaselineWeeks - 1,
 				RecentReports:            coldStartReportThreshold,
@@ -245,10 +301,10 @@ func TestDetermineStatus(t *testing.T) {
 				ProbeBaselineSamples:     minProbeBaselineSamples,
 				ProbeBaselineFailureRate: 0.2,
 			},
-			want: StatusIssuesDetected,
+			want: StatusOutage,
 		},
 		{
-			name: "probe signal alone triggers issues detected",
+			name: "probe signal alone triggers degraded",
 			signals: Signals{
 				ReportBaselineWeeks:      minBaselineWeeks,
 				RecentReports:            1,
@@ -259,19 +315,33 @@ func TestDetermineStatus(t *testing.T) {
 				ProbeBaselineSamples:     minProbeBaselineSamples - 1,
 				ProbeBaselineFailureRate: 0.2,
 			},
-			want: StatusIssuesDetected,
+			want: StatusDegraded,
 		},
 		{
-			name: "both strong signals still return issues detected",
+			name: "degraded probes plus support anomaly return outage",
 			signals: Signals{
-				ReportBaselineWeeks:      minBaselineWeeks - 1,
-				RecentReports:            coldStartReportThreshold,
+				ReportBaselineWeeks:      minBaselineWeeks,
+				RecentReports:            4,
+				ReportBaselineMean:       2,
+				ReportBaselineStdDev:     1,
 				RecentProbeTotal:         5,
 				RecentProbeFailures:      4,
 				ProbeBaselineSamples:     minProbeBaselineSamples - 1,
 				ProbeBaselineFailureRate: 0.2,
 			},
-			want: StatusIssuesDetected,
+			want: StatusOutage,
+		},
+		{
+			name: "cold start small reports do not promote degraded probes to outage",
+			signals: Signals{
+				ReportBaselineWeeks:      minBaselineWeeks - 1,
+				RecentReports:            2,
+				RecentProbeTotal:         5,
+				RecentProbeFailures:      4,
+				ProbeBaselineSamples:     minProbeBaselineSamples - 1,
+				ProbeBaselineFailureRate: 0.2,
+			},
+			want: StatusDegraded,
 		},
 	}
 

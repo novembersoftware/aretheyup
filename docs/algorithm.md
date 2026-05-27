@@ -2,7 +2,13 @@
 
 ## Purpose
 
-The algorithm decides whether a service is `Operational` or `Issues Detected` using two signal families:
+The algorithm decides whether a service is:
+
+- `Operational`
+- `Degraded`
+- `Outage`
+
+It combines two signal families:
 
 - recent user outage reports
 - recent probe failures
@@ -13,7 +19,7 @@ The implementation lives in `algorithm/status.go`. The same logic is reused by A
 
 The algorithm accepts `algorithm.Signals`:
 
-- `RecentReports`: user reports in the current rolling window
+- `RecentReports`
 - `ReportBaselineMean`
 - `ReportBaselineStdDev`
 - `ReportBaselineWeeks`
@@ -22,53 +28,46 @@ The algorithm accepts `algorithm.Signals`:
 - `ProbeBaselineFailureRate`
 - `ProbeBaselineSamples`
 
-The top-level rule is OR logic: one strong user-report signal or one strong probe signal is enough to produce `Issues Detected`.
-
 ## Time windows and constants
 
 Current thresholds in `algorithm/status.go`:
 
 - report window: 30 minutes
 - recent probe window: latest 5 probe results
-- minimum baseline maturity for report anomalies: 4 weeks
-- cold-start report threshold: 15 reports
-- minimum absolute reports on the mature path: 3
-- report z-score threshold: 3.0
+- minimum report baseline maturity: 4 weeks
+- cold-start report outage threshold: 15 reports
+- mature report outage floor: at least 3 reports
+- mature report outage z-score threshold: 3.0
+- report support z-score threshold for probe escalation: 1.0
 - minimum recent probe samples before probe evaluation: 3
 - minimum mature probe baseline samples: 20
 - fallback probe failure threshold on immature baselines: 80%
 
 These boundaries are exercised directly in `algorithm/status_test.go`.
 
-## User-report path
+## User-report outage path
 
 ### Cold-start behavior
 
-If `ReportBaselineWeeks < 4`, the service is treated as not having enough history for statistical comparison. In that case:
+If `ReportBaselineWeeks < 4`, the service does not yet have enough history for statistical comparison. In that case:
 
-- `RecentReports >= 15` triggers `Issues Detected`
-- otherwise the user-report path stays operational
-
-This prevents brand-new services from flipping on weak or noisy data.
+- `RecentReports >= 15` yields `Outage`
+- otherwise the report path does nothing
 
 ### Mature baseline behavior
 
-Once `ReportBaselineWeeks >= 4`, the current report count is compared against the baseline for the current hour-of-week bucket:
+Once `ReportBaselineWeeks >= 4`, the current report count is compared to the current hour-of-week baseline:
 
 ```text
 z = (RecentReports - ReportBaselineMean) / max(ReportBaselineStdDev, 1.0)
 ```
 
-The `max(..., 1.0)` floor avoids overreacting to very small baseline variance.
-
-The user-report signal triggers only when both conditions hold:
+The strong report outage signal triggers only when both conditions hold:
 
 - `z >= 3.0`
 - `RecentReports >= 3`
 
-That second guard prevents tiny counts from tripping the service even when the z-score is numerically large.
-
-## Probe path
+## Probe degradation path
 
 ### Recent sample guard
 
@@ -76,25 +75,60 @@ If fewer than 3 recent probe samples exist, the probe path does nothing.
 
 ### Immature probe baseline
 
-If the service has fewer than 20 probe baseline samples for the current hour-of-week bucket, the algorithm uses a strict fallback rule:
+If the service has fewer than 20 probe baseline samples for the current hour-of-week bucket:
 
-- recent failure rate `>= 0.8` triggers `Issues Detected`
+- recent failure rate `>= 0.8` yields `Degraded`
 
 ### Mature probe baseline
 
-With a mature probe baseline, the failure threshold is:
+With a mature probe baseline, the probe failure threshold is:
 
 ```text
 threshold = min(max(0.6, ProbeBaselineFailureRate + 0.4), 0.95)
 ```
 
+If the recent probe failure rate meets or exceeds that threshold, the service becomes `Degraded`.
+
+Probe failures alone do not produce `Outage`.
+
+## Probe-plus-report escalation
+
+When probes are already degraded, the algorithm can promote the service to `Outage` using a softer report anomaly signal.
+
+This support signal is available only when `ReportBaselineWeeks >= 4` and uses the same report baseline inputs:
+
+```text
+z = (RecentReports - ReportBaselineMean) / max(ReportBaselineStdDev, 1.0)
+```
+
+The support anomaly is true when both conditions hold:
+
+- `z >= 1.0`
+- `RecentReports > ReportBaselineMean`
+
 That means:
 
-- the threshold never drops below 60%
-- it is normally the baseline failure rate plus 40 points
-- it never rises above 95%
+- strong report anomalies still create `Outage` directly
+- degraded probes plus a real report anomaly also create `Outage`
+- degraded probes without report support stay `Degraded`
+- cold-start services do not get this assist path
 
-The probe path triggers when the recent failure rate meets or exceeds that threshold.
+## Final precedence
+
+Status is resolved in this order:
+
+1. `Outage` if the strong report outage rule fires
+2. `Outage` if probes are degraded and the report support anomaly is true
+3. `Degraded` if probes are degraded and neither outage rule fired
+4. `Operational` otherwise
+
+## Incident behavior
+
+The incident worker recalculates status once per minute for active services.
+
+- incidents open only on transitions into `Outage`
+- incidents resolve as soon as status leaves `Outage`
+- `Degraded` does not create incident records
 
 ## Where baselines come from
 
@@ -116,31 +150,17 @@ Probe baseline generation uses the same hour-of-week buckets over `probe_results
 
 If probe tables are unavailable, report baselines still continue and probe data simply behaves like no probe signal.
 
-## Operational use in the app
-
-### API responses
-
-List and detail routes gather recent counts and baseline rows, then call `utils.DetermineStatus`. See:
-
-- `utils/api-builders.go`
-- `utils/api-status.go`
-- `api/routes/services.go`
-
-### Incident tracking
-
-The incident worker recalculates status once per minute for active services and opens or resolves incidents on status transitions. See `workers/incidents.go`.
-
 ## Test coverage
 
 `algorithm/status_test.go` covers:
 
-- cold-start vs mature user-report behavior
-- z-score boundary cases
-- standard-deviation floor behavior
+- cold-start vs mature report outage behavior
+- softer report support anomaly behavior
 - insufficient recent probe samples
-- immature probe baseline threshold behavior
-- mature probe baseline floor, linear, and cap regimes
-- top-level OR behavior across user and probe signals
+- immature probe threshold behavior
+- mature probe threshold floor, linear, and cap regimes
+- probe-only degraded behavior
+- degraded probe plus report escalation behavior
 
 Relevant files:
 
@@ -148,6 +168,5 @@ Relevant files:
 - `algorithm/status_test.go`
 - `utils/api-status.go`
 - `utils/api-builders.go`
-- `workers/baseline.go`
 - `workers/incidents.go`
 - `storage/baselines.go`

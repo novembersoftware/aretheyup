@@ -167,7 +167,14 @@ func respondServiceCard(c *gin.Context, store *storage.Storage, service *structs
 		return
 	}
 
+	probeDetail, err := store.GetProbeServiceDetail(ctx, service.ID, 50)
+	if err != nil {
+		utils.Respond(c, 500, "error", gin.H{"error": "Failed to load probe detail"})
+		return
+	}
+
 	status := utils.DetermineStatus(recentReports, baseline, recentProbeTotal, recentProbeFailures)
+	probePresentation := utils.BuildProbePresentation(probeDetail)
 
 	histogramSince := now.Truncate(30 * time.Minute).Add(-47 * 30 * time.Minute)
 	reportBuckets, err := store.GetReportBucketsForService(ctx, service.ID, histogramSince, 30*time.Minute)
@@ -217,26 +224,40 @@ func respondServiceCard(c *gin.Context, store *storage.Storage, service *structs
 	windowUsage := int(math.Min(100, math.Round((float64(recentReports)/alertThreshold)*100)))
 
 	response := structs.ServiceDetailResponse{
-		ID:                  service.ID,
-		Slug:                service.Slug,
-		Name:                service.Name,
-		URL:                 service.HomepageURL,
-		IconURL:             fmt.Sprintf("https://s2.googleusercontent.com/s2/favicons?sz=64&domain=%s", service.HomepageURL),
-		Category:            service.Category,
-		Status:              string(status),
-		RecentReports:       recentReports,
-		CanReport:           rateLimitState.CanReport,
-		ReportRetryAfterSec: rateLimitState.RetryAfterSeconds,
-		ReportWindowLabel:   fmt.Sprintf("last %d min", int(algorithm.ReportWindow.Minutes())),
-		BaselineMeanReports: baselineMean,
-		WindowUsagePercent:  windowUsage,
-		UptimePercent:       uptimePercent,
-		UptimeDays:          uptimeDays,
-		OutageDayCount:      outageDays,
-		ElevatedDayCount:    elevatedDays,
-		ReportBuckets:       histogram,
-		RegionalReports:     regionalReports,
-		IncidentTimeline:    timeline,
+		ID:                    service.ID,
+		Slug:                  service.Slug,
+		Name:                  service.Name,
+		URL:                   service.HomepageURL,
+		IconURL:               fmt.Sprintf("https://s2.googleusercontent.com/s2/favicons?sz=64&domain=%s", service.HomepageURL),
+		Category:              service.Category,
+		Status:                string(status),
+		RecentReports:         recentReports,
+		CanReport:             rateLimitState.CanReport,
+		ReportRetryAfterSec:   rateLimitState.RetryAfterSeconds,
+		ReportWindowLabel:     fmt.Sprintf("last %d min", int(algorithm.ReportWindow.Minutes())),
+		BaselineMeanReports:   baselineMean,
+		WindowUsagePercent:    windowUsage,
+		UptimePercent:         uptimePercent,
+		UptimeDays:            uptimeDays,
+		OutageDayCount:        outageDays,
+		ElevatedDayCount:      elevatedDays,
+		ReportBuckets:         histogram,
+		RegionalReports:       regionalReports,
+		IncidentTimeline:      timeline,
+		ProbeConfigured:       probeDetail.HasConfig,
+		ProbeEnabled:          probeDetail.Enabled,
+		ProbeRecentTotal:      probePresentation.RecentTotal,
+		ProbeRecentSuccesses:  probePresentation.RecentSuccesses,
+		ProbeRecentFailures:   probePresentation.RecentFailures,
+		LastProbeCheckedLabel: probePresentation.LastCheckedLabel,
+		LastProbeSuccessLabel: probePresentation.LastSuccessLabel,
+		LastProbeFailureLabel: probePresentation.LastFailureLabel,
+		LastProbeOutcome:      probePresentation.LastOutcome,
+		LastProbeStatusCode:   probePresentation.LastStatusCode,
+		LastProbeLatencyMs:    probePresentation.LastResponseTimeMs,
+		ProbeLatencyAverageMs: probePresentation.LatencyAverageMs,
+		ProbeLatencyMaxMs:     probePresentation.LatencyMaxMs,
+		ProbeHistory:          probePresentation.History,
 	}
 
 	utils.Respond(c, 200, "service-card", gin.H{

@@ -12,6 +12,7 @@ import (
 	r "github.com/redis/go-redis/v9"
 	"github.com/rs/zerolog/log"
 	"gorm.io/gorm"
+	"gorm.io/gorm/clause"
 )
 
 const listServicesCacheTTL = 10 * time.Second
@@ -190,7 +191,17 @@ func (s *Storage) GetServiceByID(ctx context.Context, id uint) (*structs.Service
 
 // CreateService inserts a new service record and returns the created service.
 func (s *Storage) CreateService(ctx context.Context, service *structs.Service) error {
-	return s.db.WithContext(ctx).Create(service).Error
+	return s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		if err := tx.Create(service).Error; err != nil {
+			return err
+		}
+
+		cfg := DefaultProbeConfig(service.ID, service.HomepageURL, time.Now().UTC())
+		return tx.Clauses(clause.OnConflict{
+			Columns:   []clause.Column{{Name: "service_id"}},
+			DoNothing: true,
+		}).Create(&cfg).Error
+	})
 }
 
 // UpdateService saves all fields of an existing service (must have a valid ID).
@@ -216,9 +227,40 @@ func (s *Storage) GetProbeConfig(ctx context.Context, serviceID uint) (*structs.
 // UpsertProbeConfig creates or updates the probe config for a service.
 func (s *Storage) UpsertProbeConfig(ctx context.Context, pc *structs.ProbeConfig) error {
 	if pc.ID == 0 {
-		return s.db.WithContext(ctx).Create(pc).Error
+		if pc.NextRunAt.IsZero() {
+			pc.NextRunAt = time.Now().UTC()
+		}
+		return s.db.WithContext(ctx).Clauses(clause.OnConflict{
+			Columns: []clause.Column{{Name: "service_id"}},
+			DoUpdates: clause.Assignments(map[string]any{
+				"enabled":          pc.Enabled,
+				"url":              pc.URL,
+				"method":           pc.Method,
+				"interval_seconds": pc.IntervalSeconds,
+				"timeout_seconds":  pc.TimeoutSeconds,
+				"expected_status":  pc.ExpectedStatus,
+				"updated_at":       time.Now().UTC(),
+			}),
+		}).Create(pc).Error
 	}
-	return s.db.WithContext(ctx).Save(pc).Error
+
+	updates := map[string]any{
+		"enabled":          pc.Enabled,
+		"url":              pc.URL,
+		"method":           pc.Method,
+		"interval_seconds": pc.IntervalSeconds,
+		"timeout_seconds":  pc.TimeoutSeconds,
+		"expected_status":  pc.ExpectedStatus,
+	}
+	if !pc.Enabled {
+		updates["lease_token"] = ""
+		updates["lease_expires_at"] = nil
+	}
+
+	return s.db.WithContext(ctx).
+		Model(&structs.ProbeConfig{}).
+		Where("id = ?", pc.ID).
+		Updates(updates).Error
 }
 
 func (s *Storage) getCachedServiceRows(ctx context.Context, key string) ([]ServiceRow, bool) {

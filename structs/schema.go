@@ -26,14 +26,16 @@ type ServiceBaseline struct {
 	ID        uint `gorm:"primaryKey"`
 	ServiceID uint `gorm:"not null;uniqueIndex:idx_service_hour"`
 	// 0..167 where 0 = Sunday 00:00 UTC
-	HourOfWeek          int `gorm:"not null;uniqueIndex:idx_service_hour"`
-	MeanReports         float64
-	StdDevReports       float64
-	SampleCount         int
-	ProbeFailureRate    float64
-	ProbeFailureSamples int
-	CreatedAt           time.Time
-	UpdatedAt           time.Time
+	HourOfWeek           int `gorm:"not null;uniqueIndex:idx_service_hour"`
+	MeanReports          float64
+	StdDevReports        float64
+	SampleCount          int
+	ProbeFailureRate     float64
+	ProbeFailureSamples  int
+	ProbeLatencyMedianMs float64
+	ProbeLatencySamples  int
+	CreatedAt            time.Time
+	UpdatedAt            time.Time
 }
 
 type UserReport struct {
@@ -52,20 +54,26 @@ type ProbeResult struct {
 	Success        bool   `gorm:"not null"`
 	StatusCode     *int   // nil if connection failed before response
 	ResponseTimeMs *int   // nil if ''
+	FailureType    ProbeFailureType
 	ErrorMessage   string // populated on failure
 	CreatedAt      time.Time
 	UpdatedAt      time.Time
 }
 
 type ProbeConfig struct {
-	ID              uint   `gorm:"primaryKey"`
-	ServiceID       uint   `gorm:"uniqueIndex;not null"`
-	Enabled         bool   `gorm:"not null;default:true"`
-	URL             string `gorm:"not null"`
-	Method          string `gorm:"not null;default:'GET'"`
-	IntervalSeconds int    `gorm:"not null;default:60"`
-	TimeoutSeconds  int    `gorm:"not null;default:10"`
-	ExpectedStatus  int    `gorm:"not null;default:200"` // which code = healthy
+	ID              uint      `gorm:"primaryKey"`
+	ServiceID       uint      `gorm:"uniqueIndex;not null"`
+	Enabled         bool      `gorm:"not null;default:true"`
+	URL             string    `gorm:"not null"`
+	Method          string    `gorm:"not null;default:'GET'"`
+	IntervalSeconds int       `gorm:"not null;default:60"`
+	TimeoutSeconds  int       `gorm:"not null;default:10"`
+	ExpectedStatus  int       `gorm:"not null;default:200"` // which code = healthy
+	NextRunAt       time.Time `gorm:"index"`
+	LeaseToken      string
+	LeaseExpiresAt  *time.Time `gorm:"index"`
+	LastCheckedAt   *time.Time
+	LastSuccessAt   *time.Time
 	CreatedAt       time.Time
 	UpdatedAt       time.Time
 }

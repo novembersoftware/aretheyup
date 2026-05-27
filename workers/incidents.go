@@ -74,9 +74,9 @@ func reconcileIncidents(ctx context.Context, store *storage.Storage, now time.Ti
 		// Reuse the same status calculation path used by API responses
 		status := determineServiceStatus(serviceID, reportCounts, baselines, probeStats)
 		_, hasActiveIncident := activeIncidents[serviceID]
+		shouldOpen, shouldResolve := incidentTransition(status, hasActiveIncident)
 
-		// Opening only happens on transition to issues when no active incident exists
-		if status == algorithm.StatusIssuesDetected && !hasActiveIncident {
+		if shouldOpen {
 			opened, err := store.OpenIncidentIfNoneActive(ctx, serviceID, now)
 			if err != nil {
 				return err
@@ -87,8 +87,7 @@ func reconcileIncidents(ctx context.Context, store *storage.Storage, now time.Ti
 			continue
 		}
 
-		// Closing only happens when the service is back to operational
-		if status == algorithm.StatusOperational && hasActiveIncident {
+		if shouldResolve {
 			closed, err := store.ResolveActiveIncident(ctx, serviceID, now)
 			if err != nil {
 				return err
@@ -125,6 +124,16 @@ func determineServiceStatus(
 	}
 
 	return algorithm.DetermineStatus(signals)
+}
+
+func incidentTransition(status algorithm.Status, hasActiveIncident bool) (bool, bool) {
+	if status == algorithm.StatusOutage && !hasActiveIncident {
+		return true, false
+	}
+	if status != algorithm.StatusOutage && hasActiveIncident {
+		return false, true
+	}
+	return false, false
 }
 
 func toHourOfWeek(t time.Time) int {

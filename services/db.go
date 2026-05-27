@@ -66,6 +66,133 @@ func randomTimeBetween(r *rand.Rand, start, end time.Time) time.Time {
 	return start.Add(time.Duration(r.Intn(seconds)) * time.Second)
 }
 
+func intPtr(v int) *int {
+	return &v
+}
+
+func timePtr(t time.Time) *time.Time {
+	tt := t.UTC()
+	return &tt
+}
+
+func incidentActiveAt(incidents []structs.Incident, now, at time.Time) bool {
+	for _, incident := range incidents {
+		end := now
+		if incident.ResolvedAt != nil {
+			end = incident.ResolvedAt.UTC()
+		}
+		if (at.Equal(incident.StartedAt.UTC()) || at.After(incident.StartedAt.UTC())) && at.Before(end.Add(time.Second)) {
+			return true
+		}
+	}
+
+	return false
+}
+
+func buildSeedProbeData(
+	r *rand.Rand,
+	serviceID uint,
+	severityBand int,
+	now time.Time,
+	incidents []structs.Incident,
+) (structs.ProbeConfig, []structs.ProbeResult) {
+	const (
+		intervalSeconds = 15 * 60
+		timeoutSeconds  = 10
+		expectedStatus  = 200
+	)
+
+	start := now.AddDate(0, 0, -28).UTC().Truncate(15 * time.Minute)
+	results := make([]structs.ProbeResult, 0, int(now.Sub(start)/(15*time.Minute))+1)
+
+	lastCheckedAt := start
+	var lastSuccessAt *time.Time
+
+	for ts := start; !ts.After(now.UTC()); ts = ts.Add(15 * time.Minute) {
+		failProbability := 0.03
+		slowProbability := 0.08
+		baseLatencyMs := 180
+
+		switch severityBand {
+		case 0:
+			failProbability = 0.06
+			slowProbability = 0.18
+			baseLatencyMs = 240
+		case 1:
+			failProbability = 0.04
+			slowProbability = 0.22
+			baseLatencyMs = 220
+		}
+
+		if incidentActiveAt(incidents, now, ts) {
+			failProbability = 0.75
+			slowProbability = 0.1
+			baseLatencyMs = 650
+		}
+
+		if ts.After(now.Add(-75 * time.Minute)) {
+			switch severityBand {
+			case 0:
+				failProbability = 0.85
+				slowProbability = 0.1
+				baseLatencyMs = 800
+			case 1:
+				failProbability = 0.15
+				slowProbability = 0.8
+				baseLatencyMs = 700
+			}
+		}
+
+		result := structs.ProbeResult{
+			ServiceID: serviceID,
+			Region:    "global",
+			CreatedAt: ts,
+			UpdatedAt: ts,
+		}
+
+		if r.Float64() < failProbability {
+			result.Success = false
+			if r.Float64() < 0.35 {
+				result.FailureType = structs.ProbeFailureTypeConnect
+				result.ErrorMessage = "dial tcp: connection refused"
+			} else {
+				result.FailureType = structs.ProbeFailureTypeHTTPStatus
+				result.StatusCode = intPtr(503)
+				result.ResponseTimeMs = intPtr(baseLatencyMs + r.Intn(180))
+				result.ErrorMessage = "unexpected status: got 503 want 200"
+			}
+		} else {
+			latencyMs := baseLatencyMs + r.Intn(120)
+			if r.Float64() < slowProbability {
+				latencyMs += 350 + r.Intn(250)
+			}
+
+			result.Success = true
+			result.StatusCode = intPtr(expectedStatus)
+			result.ResponseTimeMs = intPtr(latencyMs)
+			lastSuccessAt = timePtr(ts)
+		}
+
+		lastCheckedAt = ts
+		results = append(results, result)
+	}
+
+	probeConfig := structs.ProbeConfig{
+		ServiceID:       serviceID,
+		Enabled:         true,
+		URL:             fmt.Sprintf("https://%s/", randomSlug(r)),
+		Method:          "GET",
+		IntervalSeconds: intervalSeconds,
+		TimeoutSeconds:  timeoutSeconds,
+		ExpectedStatus:  expectedStatus,
+		NextRunAt:       now.UTC(),
+		LastCheckedAt:   timePtr(lastCheckedAt),
+		LastSuccessAt:   lastSuccessAt,
+	}
+
+	return probeConfig, results
+}
+
 // SeedDB populates the database with fake data for development
 func SeedDB(db *gorm.DB, numServices int, clearDB bool) {
 	if config.IsProd() {
@@ -244,6 +371,17 @@ func SeedDB(db *gorm.DB, numServices int, clearDB bool) {
 		if len(reports) > 0 {
 			if err := db.CreateInBatches(&reports, 500).Error; err != nil {
 				log.Error().Err(err).Msg("Failed to create reports")
+			}
+		}
+
+		probeConfig, probeResults := buildSeedProbeData(r, service.ID, severityBand, now, incidents)
+		probeConfig.URL = fmt.Sprintf("%s/health", service.HomepageURL)
+		if err := db.Create(&probeConfig).Error; err != nil {
+			log.Error().Err(err).Msg("Failed to create probe config")
+		}
+		if len(probeResults) > 0 {
+			if err := db.CreateInBatches(&probeResults, 1000).Error; err != nil {
+				log.Error().Err(err).Msg("Failed to create probe results")
 			}
 		}
 	}

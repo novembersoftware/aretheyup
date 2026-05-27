@@ -5,12 +5,14 @@
 			<div class="flex items-center justify-between gap-4 mb-4">
 				{{ if eq .service.Status "Operational" }}
 				<span class="text-xs font-medium px-2 py-0.5 rounded-md bg-success/20 text-success">Operational</span>
+				{{ else if eq .service.Status "Degraded" }}
+				<span class="text-xs font-medium px-2 py-0.5 rounded-md bg-warning/20 text-warning">Degraded</span>
 				{{ else }}
-				<span class="text-xs font-medium px-2 py-0.5 rounded-md bg-error/20 text-error">Issues Detected</span>
+				<span class="text-xs font-medium px-2 py-0.5 rounded-md bg-error/20 text-error">Outage</span>
 				{{ end }}
 				<div class="flex items-center gap-3">
 					{{ if .service.CanReport }}
-					<button class="btn btn-sm sm:btn-md  btn-soft" hx-post="/api/service/{{ .service.Slug }}/report"
+					<button class="btn btn-sm sm:btn-md btn-soft" hx-post="/api/service/{{ .service.Slug }}/report"
 						hx-target="#service-card" hx-swap="innerHTML" hx-disabled-elt="this"
 						data-visitors-event="user-report" data-report-button="true">
 						Report an issue with {{ .service.Name }}
@@ -36,109 +38,212 @@
 				</div>
 			</div>
 
-			<div class="grid gap-3 sm:grid-cols-3 mt-6">
-				<div class="rounded-xl border border-base-content/10 bg-base-200/50 p-4">
-					<p class="text-xs uppercase tracking-wide text-base-content/50">Reports {{
-						.service.ReportWindowLabel }}</p>
-					<p class="text-2xl font-semibold mt-1 font-mono">{{ .service.RecentReports }}</p>
-					<div class="mt-3 h-1.5 w-full bg-base-300 rounded-full overflow-hidden">
-						<div class="h-full {{ if gt .service.WindowUsagePercent 85 }}bg-error{{ else if gt .service.WindowUsagePercent 55 }}bg-warning{{ else }}bg-success{{ end }}"
+			<div class="grid gap-3 md:grid-cols-3 mt-6">
+				<div class="rounded-xl border border-base-content/10 bg-base-200/40 p-4">
+					<div class="flex items-center justify-between gap-2">
+						<p class="text-[11px] uppercase tracking-wider font-medium text-base-content/40">90-day uptime
+						</p>
+						<p class="text-[11px] text-base-content/40">{{ .service.OutageDayCount }} incident · {{
+							.service.ElevatedDayCount }} elevated</p>
+					</div>
+					<p class="mt-2 text-3xl font-semibold tabular-nums">
+						{{ printf "%.2f" .service.UptimePercent }}<span
+							class="text-xl text-base-content/40 ml-0.5">%</span>
+					</p>
+					<div class="mt-3 h-1 w-full bg-base-300/60 rounded-full overflow-hidden">
+						<div class="h-full rounded-full {{ if lt .service.UptimePercent 95.0 }}bg-error{{ else if lt .service.UptimePercent 99.0 }}bg-warning{{ else }}bg-success{{ end }}"
+							style="width: {{ printf " %.2f" .service.UptimePercent }}%"></div>
+					</div>
+				</div>
+
+				<div class="rounded-xl border border-base-content/10 bg-base-200/40 p-4">
+					<div class="flex items-center justify-between gap-2">
+						<p class="text-[11px] uppercase tracking-wider font-medium text-base-content/40">User reports
+						</p>
+						<p class="text-[11px] text-base-content/40">{{ .service.ReportWindowLabel }}</p>
+					</div>
+					<div class="mt-2 flex items-baseline gap-1.5">
+						<span class="text-3xl font-semibold font-mono tabular-nums">{{ .service.RecentReports }}</span>
+						<span class="text-sm text-base-content/40">/ {{ printf "%.1f" .service.BaselineMeanReports }}
+							expected</span>
+					</div>
+					<div class="mt-3 h-1 w-full bg-base-300/60 rounded-full overflow-hidden">
+						<div class="h-full rounded-full {{ if gt .service.WindowUsagePercent 85 }}bg-error{{ else if gt .service.WindowUsagePercent 55 }}bg-warning{{ else }}bg-success{{ end }}"
 							style="width: {{ .service.WindowUsagePercent }}%"></div>
 					</div>
 				</div>
 
-				<div class="rounded-xl border border-base-content/10 bg-base-200/50 p-4">
-					<p class="text-xs uppercase tracking-wide text-base-content/50">Expected reports</p>
-					<p class="text-2xl font-semibold mt-1 font-mono">{{ printf "%.1f" .service.BaselineMeanReports }}
-					</p>
-					<p class="text-xs text-base-content/50 mt-3">Based on this hour of week</p>
-				</div>
-
-				<div class="rounded-xl border border-base-content/10 bg-base-200/50 p-4">
-					<p class="text-xs uppercase tracking-wide text-base-content/50">90-day uptime</p>
-					<p class="text-2xl font-semibold mt-1">{{ printf "%.2f%%" .service.UptimePercent }}</p>
-					<p class="text-xs text-base-content/50 mt-3">{{ .service.OutageDayCount }} incident days, {{
-						.service.ElevatedDayCount }} elevated days</p>
-				</div>
-			</div>
-		</div>
-	</div>
-
-	<div class="rounded-2xl border border-base-content/10 bg-base-100/90 shadow-sm backdrop-blur">
-		<div class="p-5 sm:p-6">
-			<div class="flex items-center justify-between gap-3 mb-4">
-				<h2 class="text-sm font-semibold tracking-wide uppercase text-base-content/60">Report volume (24h)</h2>
-				<span class="text-xs text-base-content/50">30-min windows</span>
-			</div>
-			<div class="h-36 rounded-xl bg-base-200/60 border border-base-content/10 p-3 overflow-x-auto">
-				<div class="h-full min-w-[36rem] flex items-end gap-1.5">
-					{{ range .service.ReportBuckets }}
-					<div class="group flex-1 h-full flex items-end" title="{{ .Label }} - {{ .Count }} reports">
-						<div class="w-full rounded-sm {{ if eq .Level " high" }}bg-error{{ else if eq .Level "elevated"
-							}}bg-warning{{ else }}bg-success/70{{ end }}" style="height: {{ .HeightPct }}%"></div>
+				<div class="rounded-xl border border-base-content/10 bg-base-200/40 p-4">
+					<div class="flex items-center justify-between gap-2">
+						<p class="text-[11px] uppercase tracking-wider font-medium text-base-content/40">Health checks
+						</p>
+						{{ if and .service.ProbeConfigured .service.ProbeEnabled .service.LastProbeOutcome }}
+						<p class="text-[11px] text-base-content/40 inline-flex items-center gap-1">
+							<span class="w-1.5 h-1.5 rounded-full {{ if eq .service.LastProbeOutcome "Failure"
+								}}bg-error{{ else }}bg-success{{ end }}"></span>
+							{{ .service.LastProbeCheckedLabel }}
+						</p>
+						{{ end }}
 					</div>
+					{{ if not .service.ProbeConfigured }}
+					<p class="mt-2 text-lg font-medium">Not configured</p>
+					<div class="mt-3 h-1 w-full bg-base-300/30 rounded-full"></div>
+					{{ else if not .service.ProbeEnabled }}
+					<p class="mt-2 text-lg font-medium">Disabled</p>
+					<div class="mt-3 h-1 w-full bg-base-300/30 rounded-full"></div>
+					{{ else if .service.LastProbeOutcome }}
+					<div class="mt-2 flex items-baseline gap-1.5">
+						<span class="text-3xl font-semibold font-mono tabular-nums">{{ .service.ProbeRecentSuccesses
+							}}</span>
+						<span class="text-sm text-base-content/40">/ {{ .service.ProbeRecentTotal }} healthy</span>
+					</div>
+					<div class="mt-3 flex items-center gap-0.5">
+						{{ range .service.ProbeHistory }}
+						<div title="{{ .Label }}"
+							class="h-1 flex-1 rounded-full {{ if .Success }}bg-success{{ else }}bg-error{{ end }}">
+						</div>
+						{{ end }}
+					</div>
+					{{ else }}
+					<p class="mt-2 text-lg font-medium">Waiting for data</p>
+					<div class="mt-3 h-1 w-full bg-base-300/30 rounded-full"></div>
 					{{ end }}
 				</div>
 			</div>
 		</div>
 	</div>
 
-	<div class="rounded-2xl border border-base-content/10 bg-base-100/90 shadow-sm backdrop-blur">
-		<div class="p-5 sm:p-6">
-			<div class="flex items-center justify-between gap-3 mb-4">
-				<h2 class="text-sm font-semibold tracking-wide uppercase text-base-content/60">Regions</h2>
-				<span class="text-xs text-base-content/50">{{ .service.ReportWindowLabel }}</span>
-			</div>
-			{{ if not .service.RegionalReports }}
-			<p class="text-sm text-base-content/60">No regional report data right now.</p>
-			{{ else }}
-			<div class="space-y-3">
-				{{ range .service.RegionalReports }}
-				<div class="rounded-xl border border-base-content/10 bg-base-200/40 p-3">
-					<div class="flex items-center justify-between text-sm">
-						<div class="flex items-center gap-2">
-							<span
-								class="w-2.5 h-2.5 rounded-full {{ if ge .Percent 40 }}bg-error{{ else if ge .Percent 20 }}bg-warning{{ else }}bg-success{{ end }}"></span>
-							<span class="font-medium">{{ .Region }}</span>
+	<div class="grid gap-6 lg:grid-cols-2">
+		<div
+			class="rounded-2xl border border-base-content/10 bg-base-100/90 shadow-sm backdrop-blur {{ if not (and .service.ProbeConfigured .service.ProbeEnabled) }}lg:col-span-2{{ end }}">
+			<div class="p-5 sm:p-6">
+				<div class="flex items-center justify-between gap-3 mb-4">
+					<h2 class="text-sm font-semibold tracking-wide uppercase text-base-content/60">Report volume (24h)
+					</h2>
+					<span class="text-xs text-base-content/50">30-min windows</span>
+				</div>
+				<div class="h-36 rounded-xl bg-base-200/60 border border-base-content/10 p-3">
+					<div class="relative h-full">
+						<div class="pointer-events-none absolute inset-0 flex flex-col justify-between">
+							<div class="h-px bg-base-content/5"></div>
+							<div class="h-px bg-base-content/5"></div>
+							<div class="h-px bg-base-content/5"></div>
+							<div class="h-px bg-base-content/5"></div>
 						</div>
-						<span class="font-mono text-base-content/70">{{ .Count }} reports</span>
+						<div class="relative h-full flex items-end gap-1">
+							{{ range .service.ReportBuckets }}
+							<div class="group flex-1 h-full flex items-end" title="{{ .Label }} - {{ .Count }} reports">
+								<div class="w-full rounded-sm {{ if eq .Level "high" }}bg-error{{ else if eq
+									.Level "elevated" }}bg-warning{{ else }}bg-success{{ end }}"
+									style="height: {{ .HeightPct }}%"></div>
+							</div>
+							{{ end }}
+						</div>
 					</div>
-					<div class="mt-2 h-1.5 w-full bg-base-300 rounded-full overflow-hidden">
-						<div class="h-full {{ if ge .Percent 40 }}bg-error{{ else if ge .Percent 20 }}bg-warning{{ else }}bg-success{{ end }}"
-							style="width: {{ .Percent }}%"></div>
+				</div>
+			</div>
+		</div>
+
+		{{ if and .service.ProbeConfigured .service.ProbeEnabled }}
+		<div class="rounded-2xl border border-base-content/10 bg-base-100/90 shadow-sm backdrop-blur">
+			<div class="p-5 sm:p-6">
+				<div class="flex items-center justify-between gap-3 mb-4">
+					<h2 class="text-sm font-semibold tracking-wide uppercase text-base-content/60">Response time</h2>
+					<div class="flex items-center gap-2">
+						<span class="text-xs text-base-content/50">{{ if .service.ProbeLatencyAverageMs }}avg <span
+								class="font-mono tabular-nums">{{ .service.ProbeLatencyAverageMs }} ms</span> · {{ end
+							}}last {{ len .service.ProbeHistory }} checks</span>
+					</div>
+				</div>
+
+				{{ if not .service.ProbeHistory }}
+				<p class="text-sm text-base-content/60">No checks recorded yet.</p>
+				{{ else }}
+				<div class="h-36 rounded-xl bg-base-200/60 border border-base-content/10 p-3">
+					<div class="relative h-full">
+						<div class="pointer-events-none absolute inset-0 flex flex-col justify-between">
+							<div class="h-px bg-base-content/5"></div>
+							<div class="h-px bg-base-content/5"></div>
+							<div class="h-px bg-base-content/5"></div>
+							<div class="h-px bg-base-content/5"></div>
+						</div>
+						<div class="relative h-full flex items-end gap-1">
+							{{ range .service.ProbeHistory }}
+							<div class="group flex-1 h-full flex items-end"
+								title="{{ .Label }} · {{ if .Success }}Healthy{{ else }}Failure{{ end }}{{ if .StatusCode }} · HTTP {{ .StatusCode }}{{ end }}{{ if .ResponseTimeMs }} · {{ .ResponseTimeMs }} ms{{ end }}">
+								<div class="w-full rounded-sm {{ if eq .Level "failure" }}bg-error{{ else if eq
+									.Level "elevated" }}bg-warning{{ else }}bg-success{{ end }}"
+									style="height: {{ if .HeightPct }}{{ .HeightPct }}{{ else }}8{{ end }}%"></div>
+							</div>
+							{{ end }}
+						</div>
 					</div>
 				</div>
 				{{ end }}
 			</div>
-			{{ end }}
 		</div>
+		{{ end }}
 	</div>
 
-	<div class="rounded-2xl border border-base-content/10 bg-base-100/90 shadow-sm backdrop-blur">
-		<div class="p-5 sm:p-6">
-			<div class="flex items-center justify-between gap-3 mb-4">
-				<h2 class="text-sm font-semibold tracking-wide uppercase text-base-content/60">Uptime history</h2>
-				<span class="text-xs text-base-content/50">90 days</span>
-			</div>
+	<div class="grid gap-6 lg:grid-cols-2">
+		<div class="rounded-2xl border border-base-content/10 bg-base-100/90 shadow-sm backdrop-blur">
+			<div class="p-5 sm:p-6">
+				<div class="flex items-center justify-between gap-3 mb-4">
+					<h2 class="text-sm font-semibold tracking-wide uppercase text-base-content/60">Uptime history</h2>
+					<span class="text-xs text-base-content/50">90 days</span>
+				</div>
 
-			<div class="grid grid-cols-[repeat(30,minmax(0,1fr))] gap-1">
-				{{ range .service.UptimeDays }}
-				<div title="{{ .Label }}" class="h-7 rounded-sm {{ if eq .Level " outage" }}bg-error{{ else if eq
-					.Level "elevated" }}bg-warning{{ else }}bg-success{{ end }}"></div>
+				<div class="grid grid-cols-[repeat(30,minmax(0,1fr))] gap-1">
+					{{ range .service.UptimeDays }}
+					<div title="{{ .Label }}" class="h-7 rounded-sm {{ if eq .Level "outage" }}bg-error{{ else if eq
+						.Level "elevated" }}bg-warning{{ else }}bg-success{{ end }}"></div>
+					{{ end }}
+				</div>
+
+				<div class="flex items-center justify-between mt-3 text-xs text-base-content/50">
+					<span>90 days ago</span>
+					<span>Today</span>
+				</div>
+				<div class="flex flex-wrap items-center gap-x-4 gap-y-1 mt-3 text-xs text-base-content/60">
+					<span class="inline-flex items-center gap-1.5"><span
+							class="w-2.5 h-2.5 rounded-sm bg-success"></span>Operational</span>
+					<span class="inline-flex items-center gap-1.5"><span
+							class="w-2.5 h-2.5 rounded-sm bg-warning"></span>Elevated
+						<span class="font-mono tabular-nums text-base-content/50">{{ .service.ElevatedDayCount
+							}}</span></span>
+					<span class="inline-flex items-center gap-1.5"><span
+							class="w-2.5 h-2.5 rounded-sm bg-error"></span>Incident
+						<span class="font-mono tabular-nums text-base-content/50">{{ .service.OutageDayCount
+							}}</span></span>
+				</div>
+			</div>
+		</div>
+
+		<div class="rounded-2xl border border-base-content/10 bg-base-100/90 shadow-sm backdrop-blur">
+			<div class="p-5 sm:p-6">
+				<div class="flex items-center justify-between gap-3 mb-4">
+					<h2 class="text-sm font-semibold tracking-wide uppercase text-base-content/60">Regions</h2>
+					<span class="text-xs text-base-content/50">{{ .service.ReportWindowLabel }}</span>
+				</div>
+				{{ if not .service.RegionalReports }}
+				<p class="text-sm text-base-content/60">No regional report data right now.</p>
+				{{ else }}
+				<div class="space-y-2.5">
+					{{ range .service.RegionalReports }}
+					<div class="flex items-center gap-3 text-sm">
+						<span
+							class="w-1.5 h-1.5 rounded-full shrink-0 {{ if ge .Percent 40 }}bg-error{{ else if ge .Percent 20 }}bg-warning{{ else }}bg-success{{ end }}"></span>
+						<span class="font-mono font-medium text-base-content/80 w-8 shrink-0">{{ .Region }}</span>
+						<div class="flex-1 h-1.5 rounded-full bg-base-300/60 overflow-hidden">
+							<div class="h-full rounded-full {{ if ge .Percent 40 }}bg-error{{ else if ge .Percent 20 }}bg-warning{{ else }}bg-success{{ end }}"
+								style="width: {{ .Percent }}%"></div>
+						</div>
+						<span class="font-mono tabular-nums text-base-content/60 w-8 text-right shrink-0">{{ .Count
+							}}</span>
+					</div>
+					{{ end }}
+				</div>
 				{{ end }}
-			</div>
-
-			<div class="flex items-center justify-between mt-3 text-xs text-base-content/50">
-				<span>90 days ago</span>
-				<span>Today</span>
-			</div>
-			<div class="flex items-center gap-4 mt-3 text-xs text-base-content/60">
-				<span class="inline-flex items-center gap-1"><span
-						class="w-2.5 h-2.5 rounded-sm bg-success"></span>Operational</span>
-				<span class="inline-flex items-center gap-1"><span
-						class="w-2.5 h-2.5 rounded-sm bg-warning"></span>Elevated reports</span>
-				<span class="inline-flex items-center gap-1"><span
-						class="w-2.5 h-2.5 rounded-sm bg-error"></span>Incident day</span>
 			</div>
 		</div>
 	</div>
@@ -152,21 +257,22 @@
 			{{ if not .service.IncidentTimeline }}
 			<p class="text-sm text-base-content/60">No incidents recorded right now.</p>
 			{{ else }}
-			<div class="space-y-3">
+			<div class="space-y-2">
 				{{ range .service.IncidentTimeline }}
 				<div
-					class="rounded-xl border border-base-content/10 bg-base-200/40 p-3 flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between">
-					<div>
-						<p class="text-sm font-medium">{{ .StartedAtLabel }}</p>
-						<p class="text-xs text-base-content/60">to {{ .ResolvedAtLabel }}</p>
-					</div>
-					<div class="flex items-center gap-2">
+					class="rounded-xl border border-base-content/10 bg-base-200/40 px-3 py-2.5 flex flex-col gap-2 sm:flex-row sm:items-center sm:gap-3">
+					<span
+						class="w-2 h-2 rounded-full shrink-0 {{ if .Ongoing }}bg-error{{ else }}bg-base-content/30{{ end }}"></span>
+					<p class="text-sm font-medium min-w-0 flex-1 truncate">
+						{{ .StartedAtLabel }} <span class="text-base-content/40">→</span> {{ .ResolvedAtLabel }}
+					</p>
+					<div class="flex items-center gap-2 shrink-0">
 						{{ if .Ongoing }}
 						<span class="badge badge-error badge-sm">Active</span>
 						{{ else }}
 						<span class="badge badge-ghost badge-sm">Resolved</span>
 						{{ end }}
-						<span class="text-xs font-mono text-base-content/70">{{ .DurationLabel }}</span>
+						<span class="text-xs font-mono tabular-nums text-base-content/70">{{ .DurationLabel }}</span>
 					</div>
 				</div>
 				{{ end }}
