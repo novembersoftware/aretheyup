@@ -8,10 +8,12 @@ Core runtime flow:
 
 1. `main.go` loads config and logging, then connects to Postgres and Redis.
 2. `services/MigrateDB` applies schema changes with GORM `AutoMigrate`.
-3. API mode starts two background loops before booting Gin:
+3. `storage.BackfillMissingProbeConfigs` ensures every existing service has a default probe config derived from its `HomepageURL`.
+4. API mode starts two background loops before booting Gin:
    - baseline refresh every hour
    - incident reconciliation every minute
-4. Gin serves HTML pages, HTMX fragments, and JSON responses.
+5. Probe mode runs a separate synthetic worker loop that claims due probe configs and writes `probe_results`.
+6. Gin serves HTML pages, HTMX fragments, and JSON responses.
 
 ## HTTP surface
 
@@ -53,7 +55,7 @@ Templates are parsed from `templates/*.html` and `templates/components/*.html`. 
 
 The status algorithm is defined in `algorithm/status.go` and documented in [algorithm.md](./algorithm.md).
 
-The API uses the same algorithm path for both list and detail responses through `utils/DetermineStatus`, and the incident worker reuses the same logic for open/close transitions.
+The API uses the same algorithm path for both list and detail responses through `utils/DetermineStatus`, and the incident worker reuses the same logic for open/close transitions. Detail responses also include recent probe history, latency summaries, and last-success / last-failure labels assembled in `api/routes/services.go`, `storage/probes.go`, and `utils/probes.go`.
 
 ## Workers
 
@@ -65,6 +67,18 @@ The API uses the same algorithm path for both list and detail responses through 
 
 `workers/incidents.go` recalculates current service state once per minute and opens or resolves incidents based on transitions into and out of `Outage`. Probe-only `Degraded` states are visible in the UI but do not create incident records.
 
+### Synthetic probe worker
+
+`workers/probe.go` runs only in `probe` mode. It:
+
+- wakes every 5 seconds to claim due probe configs for active services
+- leases configs in batches of 16 using `FOR UPDATE SKIP LOCKED`
+- executes HTTP requests with normalized method, timeout, and expected status handling
+- records typed failure reasons such as `timeout`, `dns`, `connect`, `tls`, and `http_status`
+- deletes raw probe rows older than 30 days once per hour
+
+Probe configs are stored per service in `probe_configs`. New services get a default config from `HomepageURL`, and startup backfill applies the same default to older rows that predate the probe feature.
+
 ## Storage and data model
 
 Schema models live in `structs/schema.go`:
@@ -73,15 +87,15 @@ Schema models live in `structs/schema.go`:
 - `UserReport`: user-submitted outage report
 - `ProbeResult`: external probe outcome
 - `ProbeConfig`: probe definition per service
-- `ServiceBaseline`: hour-of-week baseline statistics
+- `ServiceBaseline`: hour-of-week report and probe baseline statistics
 - `Incident`: tracked outage window
 
-The storage layer in `storage/` owns SQL queries, Redis-backed list caching, baseline lookups, incident lookups, and manage-mode CRUD.
+The storage layer in `storage/` owns SQL queries, Redis-backed list caching, baseline lookups, incident lookups, probe leasing/history queries, and manage-mode CRUD.
 
 Notable storage behavior:
 
 - service lists are cached in Redis for 10 seconds when the request matches the first page shape (`storage/storage.go`)
-- detail pages aggregate histogram, regional counts, uptime days, and incident history (`storage/service-detail.go`, `api/routes/services.go`)
+- detail pages aggregate histogram, regional counts, uptime days, incident history, and recent probe presentation data (`storage/service-detail.go`, `storage/probes.go`, `api/routes/services.go`, `utils/probes.go`)
 - sitemap generation uses active services ordered by slug (`storage/storage.go`, `api/routes/seo.go`)
 
 Relevant files:
@@ -92,6 +106,8 @@ Relevant files:
 - `api/routes/services.go`
 - `workers/baseline.go`
 - `workers/incidents.go`
+- `workers/probe.go`
 - `storage/storage.go`
+- `storage/probes.go`
 - `storage/service-detail.go`
 - `structs/schema.go`

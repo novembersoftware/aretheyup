@@ -27,7 +27,15 @@ docker compose -f docker-compose.dev.yml up -d
 go run main.go
 ```
 
-The process loads `.env.local`, opens PostgreSQL and Redis, runs GORM migrations, starts the background workers, then serves HTTP on `API_PORT`. This startup path is implemented in `main.go`, `services/db.go`, `services/redis.go`, and `api/server.go`.
+The process loads `.env.local`, opens PostgreSQL and Redis, runs GORM migrations, backfills any missing default probe configs from existing service homepages, starts the baseline and incident workers, then serves HTTP on `API_PORT`. This startup path is implemented in `main.go`, `services/db.go`, `services/redis.go`, `storage/probes.go`, and `api/server.go`.
+
+4. In a second terminal, start the probe worker if you want live synthetic probe data:
+
+```bash
+go run main.go probe
+```
+
+The probe worker is a separate process. API mode reads probe results but does not execute probes itself.
 
 ## Run modes
 
@@ -48,6 +56,14 @@ go run main.go manage
 
 Opens the Bubble Tea service-management UI. Implemented in `manage/tui.go`.
 
+### Probe worker
+
+```bash
+go run main.go probe
+```
+
+Runs the synthetic probe loop that claims due probe configs, executes HTTP checks, writes `probe_results`, and cleans up raw probe history older than 30 days. Implemented in `main.go`, `workers/probe.go`, and `storage/probes.go`.
+
 ### Seeder
 
 ```bash
@@ -56,7 +72,7 @@ go run main.go seed --count 25
 go run main.go seed --count 25 --clear
 ```
 
-The seed mode inserts example services, reports, and incidents for development and is disabled in production. Implemented in `utils/parse-flags.go` and `services/db.go`.
+The seed mode inserts example services, reports, probe configs/results, and incidents for development and is disabled in production. Implemented in `utils/parse-flags.go` and `services/db.go`.
 
 ## Local services
 
@@ -74,6 +90,7 @@ After startup, verify:
 - `GET /` renders the index page.
 - `GET /api/services` succeeds only when the request carries an allowed same-site `Origin` or `Referer`.
 - `X-Request-ID` is present on responses.
+- `go run main.go probe` begins writing probe results for enabled services.
 
 Relevant files:
 
@@ -81,7 +98,9 @@ Relevant files:
 - `utils/parse-flags.go`
 - `services/db.go`
 - `services/redis.go`
+- `storage/probes.go`
 - `docker-compose.dev.yml`
 - `api/server.go`
 - `api/middleware/origin.go`
 - `api/middleware/request-id.go`
+- `workers/probe.go`

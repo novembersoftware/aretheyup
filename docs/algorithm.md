@@ -130,6 +130,17 @@ The incident worker recalculates status once per minute for active services.
 - incidents resolve as soon as status leaves `Outage`
 - `Degraded` does not create incident records
 
+## Where recent probe samples come from
+
+Recent probe inputs are produced by the separate `probe` runtime mode.
+
+- `workers/probe.go` claims due enabled probe configs for active services
+- each run writes one `probe_results` row with status code, latency, and normalized failure type
+- request-time probe summaries read the latest rows through `storage.GetRecentProbeStats` and `storage.GetProbeServiceDetail`
+- raw probe history is retained for 30 days before cleanup
+
+Failure-type normalization is implemented in `workers/probe_failure.go` and `structs/probe_failure.go`.
+
 ## Where baselines come from
 
 Baselines are refreshed in `workers/baseline.go` via `storage.RefreshAllBaselines`.
@@ -147,6 +158,8 @@ Probe baseline generation uses the same hour-of-week buckets over `probe_results
 
 - average failure rate
 - probe sample count
+- median success latency
+- latency sample count
 
 If probe tables are unavailable, report baselines still continue and probe data simply behaves like no probe signal.
 
@@ -168,5 +181,9 @@ Relevant files:
 - `algorithm/status_test.go`
 - `utils/api-status.go`
 - `utils/api-builders.go`
+- `utils/probes.go`
 - `workers/incidents.go`
+- `workers/probe.go`
+- `workers/probe_failure.go`
 - `storage/baselines.go`
+- `storage/probes.go`

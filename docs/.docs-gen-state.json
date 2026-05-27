@@ -1,5 +1,5 @@
 {
-  "last_successful_update_at": "2026-05-27T07:51:16Z",
-  "last_processed_commit": "f951e1c6eefbfdbafd714ba3e45f44792f709976",
-  "notes": "Added dedicated status algorithm documentation and linked it from the docs index and architecture page."
+  "last_successful_update_at": "2026-05-27T19:12:57Z",
+  "last_processed_commit": "98f1bdfbe66e66678eac0431f209add2f695da2b",
+  "notes": "Documented the synthetic probe system, probe runtime mode, startup probe-config backfill, and probe maintainer workflow."
 }

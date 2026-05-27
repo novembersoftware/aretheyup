@@ -24,6 +24,22 @@ Implemented in `api/middleware/origin.go`.
 
 The report endpoint is rate limited in Redis. For HTMX requests that do not ask for JSON, the server can respond with `204 No Content` and an `HX-Trigger` payload instead of a visible JSON error. Check Redis availability and the configured report window in `REPORT_RATE_LIMIT_WINDOW_SECONDS`. Implemented in `api/middleware/rate-limit.go`.
 
+## Probe data never updates
+
+The API process does not execute probes. Run the separate worker with:
+
+```bash
+go run main.go probe
+```
+
+Then check:
+
+- the service has an enabled probe config
+- the probe URL points at the endpoint you actually want to check
+- the expected status code and timeout are realistic for that endpoint
+
+Existing services are backfilled with a default probe config from `HomepageURL` at startup, but that default may not be the best health-check target. Review or edit the config in manage mode if results look wrong. Implemented in `main.go`, `storage/probes.go`, `storage/storage.go`, and `workers/probe.go`.
+
 ## Client IPs look wrong behind a proxy
 
 If `TRUSTED_PROXIES` is empty or invalid, Gin will not trust forwarded IP headers. Also note that `utils.GetClientIP` prefers `CF-Connecting-IP` when present. Review `api/server.go`, `api/server_test.go`, and `utils/utils.go`.
@@ -45,5 +61,8 @@ Relevant files:
 - `api/middleware/rate-limit.go`
 - `api/server.go`
 - `api/server_test.go`
+- `storage/probes.go`
+- `storage/storage.go`
 - `utils/utils.go`
 - `api/routes/seo.go`
+- `workers/probe.go`
