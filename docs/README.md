@@ -8,6 +8,7 @@ Internal maintainer docs for this repository.
 - [Architecture](./architecture.md): request flow, storage layout, worker split, and status calculation.
 - [Status algorithm](./algorithm.md): thresholds, baseline generation, and incident-triggering logic.
 - [Configuration](./configuration.md): environment variables, origin policy, trusted proxies, and container settings.
+- [Deployment](./deployment.md): production compose topology, startup flow, and verification steps.
 - [Development](./development.md): test and validation commands, probe operations, and code hotspots.
 - [Troubleshooting](./troubleshooting.md): common startup and runtime failures.
 

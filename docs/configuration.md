@@ -66,11 +66,12 @@ The CSP is currently report-only, not enforcing.
 
 `docker-compose.prod.yml` runs:
 
-- the API container built from `Dockerfile`
-- PostgreSQL
-- Redis
+- an `api` profile that starts the HTTP server
+- a `probe` profile that starts the synthetic probe worker
+- an `app` profile that starts both app containers together
+- a `deps` profile that starts PostgreSQL and Redis
 
-The Compose file sets `ENV`, `API_PORT`, `DB_DSN`, `REDIS_URL`, and `ALLOWED_PAGE_ORIGINS`. Set `SITE_BASE_URL` explicitly in real deployments if you need stable canonical and sitemap URLs independent of the inbound host. `robots.txt` omits the sitemap line when `SITE_BASE_URL` is empty. That behavior is implemented in `api/routes/seo.go` and `utils/utils.go`.
+The app services are built from `Dockerfile`. `api` runs `command: ["api"]` and `probe` runs `command: ["probe"]`. The Compose file sets `ENV`, `API_PORT`, `DB_DSN`, `REDIS_URL`, and `ALLOWED_PAGE_ORIGINS`. Set `SITE_BASE_URL` explicitly in real deployments if you need stable canonical and sitemap URLs independent of the inbound host. `robots.txt` omits the sitemap line when `SITE_BASE_URL` is empty. That behavior is implemented in `api/routes/seo.go` and `utils/utils.go`.
 
 Relevant files:
 

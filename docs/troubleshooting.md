@@ -32,6 +32,9 @@ The API process does not execute probes. Run the separate worker with:
 go run main.go probe
 ```
 
+If you deploy with `docker-compose.prod.yml`, the checked-in Compose file already includes that worker as the `probe` service.
+Start it with the `probe` profile, or use the `app` profile if you want both app containers together.
+
 Then check:
 
 - the service has an enabled probe config
