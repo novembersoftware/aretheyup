@@ -10,4 +10,6 @@ type Config struct {
 	TrustedProxies               string `env:"TRUSTED_PROXIES"`
 	ReportRateLimitMaxRequests   int64  `env:"REPORT_RATE_LIMIT_MAX_REQUESTS" envDefault:"1"`
 	ReportRateLimitWindowSeconds int    `env:"REPORT_RATE_LIMIT_WINDOW_SECONDS" envDefault:"1800"`
+	SubmitRateLimitMaxRequests   int64  `env:"SUBMIT_RATE_LIMIT_MAX_REQUESTS" envDefault:"3"`
+	SubmitRateLimitWindowSeconds int    `env:"SUBMIT_RATE_LIMIT_WINDOW_SECONDS" envDefault:"3600"`
 }

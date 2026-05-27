@@ -9,12 +9,13 @@ func SetupPageRoutes(r *gin.Engine, store *storage.Storage, pageOriginGuard gin.
 	group := r.Group("")
 	group.Use(pageOriginGuard)
 	group.GET("/", getIndexPage)
+	group.GET("/submit-service", getSubmitServicePage)
 	group.GET("/robots.txt", getRobotsTxt)
 	group.GET("/sitemap.xml", func(c *gin.Context) { getSitemapXML(c, store) })
 	group.GET("/:slug", func(c *gin.Context) { getServicePage(c, store) })
 }
 
-func SetupAPIRoutes(r *gin.Engine, store *storage.Storage, reportRouteLimiter, websiteAPIGuard gin.HandlerFunc) {
+func SetupAPIRoutes(r *gin.Engine, store *storage.Storage, reportRouteLimiter, submissionRouteLimiter, websiteAPIGuard gin.HandlerFunc) {
 	g := r.Group("/api")
 	g.Use(websiteAPIGuard)
 	g.Use(func(c *gin.Context) {
@@ -25,5 +26,6 @@ func SetupAPIRoutes(r *gin.Engine, store *storage.Storage, reportRouteLimiter, w
 	g.GET("/services/search", func(c *gin.Context) { searchServices(c, store) })
 	g.GET("/service/:slug", func(c *gin.Context) { getService(c, store) })
 	g.POST("/service/:slug/report", reportRouteLimiter, func(c *gin.Context) { createServiceReport(c, store) })
+	g.POST("/services/submit", submissionRouteLimiter, func(c *gin.Context) { submitService(c, store) })
 	g.GET("/services/count", func(c *gin.Context) { getServiceCount(c, store) })
 }
