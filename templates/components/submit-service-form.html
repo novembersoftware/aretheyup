@@ -1,45 +1,56 @@
 {{ define "submit-service-form" }}
-<div class="rounded-2xl border border-base-content/10 bg-base-100/90">
+<div class="rounded-2xl border border-base-content/10 bg-base-100/90 shadow-sm backdrop-blur">
 	<div class="p-5 sm:p-6">
 		{{ if .error }}
-		<div class="mb-4 rounded-xl border border-error/30 bg-error/10 px-4 py-3 text-sm text-error">{{ .error }}</div>
+		<div class="mb-5 rounded-xl border border-error/30 bg-error/10 px-4 py-3 text-sm text-error">{{ .error }}</div>
 		{{ end }}
 
-		<form class="grid grid-cols-1 gap-4" hx-post="/api/services/submit" hx-target="#submit-service-form-container"
+		<form class="space-y-5" hx-post="/api/services/submit" hx-target="#submit-service-form-container"
 			hx-swap="innerHTML" hx-disabled-elt="find button[type='submit']">
-			<div>
-				<label class="label" for="submission-name">
-					<span class="label-text">Service name</span>
-				</label>
-				<input id="submission-name" name="name" class="input w-full" maxlength="100" required
-					value="{{ .name }}" placeholder="Acme Payments" />
+
+			<div class="grid grid-cols-1 gap-5 sm:grid-cols-2">
+				<div>
+					<label for="submission-name"
+						class="block mb-2 text-xs font-medium uppercase tracking-wide text-base-content/55">Service
+						name</label>
+					<input id="submission-name" name="name"
+						class="input h-12 w-full rounded-xl bg-base-200/60 border-base-content/10 font-mono text-sm placeholder:text-base-content/35"
+						maxlength="100" required value="{{ .name }}" placeholder="Acme Payments" autocomplete="off" />
+				</div>
+
+				<div>
+					<label for="submission-homepage-url"
+						class="block mb-2 text-xs font-medium uppercase tracking-wide text-base-content/55">Homepage
+						URL</label>
+					<input id="submission-homepage-url" name="homepage_url" type="url"
+						class="input h-12 w-full rounded-xl bg-base-200/60 border-base-content/10 font-mono text-sm placeholder:text-base-content/35"
+						maxlength="255" required value="{{ .homepage_url }}" placeholder="https://example.com"
+						autocomplete="off" spellcheck="false" />
+				</div>
 			</div>
 
 			<div>
-				<label class="label" for="submission-homepage-url">
-					<span class="label-text">Homepage URL</span>
-				</label>
-				<input id="submission-homepage-url" name="homepage_url" type="url" class="input w-full" maxlength="255"
-					required value="{{ .homepage_url }}" placeholder="https://example.com" />
-			</div>
-
-			<div>
-				<label class="label" for="submission-category">
-					<span class="label-text">Category</span>
-				</label>
-				<select id="submission-category" name="category" class="select w-full" required>
+				<span
+					class="block mb-2 text-xs font-medium uppercase tracking-wide text-base-content/55">Category</span>
+				<div class="flex flex-wrap gap-2">
 					{{ range .categories }}
-					<option value="{{ . }}" {{ if eq $.category . }}selected{{ end }}>{{ . }}</option>
+					<label
+						class="cursor-pointer text-xs capitalize px-3 py-1.5 rounded-full bg-base-content/5 text-base-content/65 border border-base-content/10 transition hover:bg-base-content/10 hover:text-base-content has-[:checked]:bg-primary/15 has-[:checked]:text-primary has-[:checked]:ring-2 has-[:checked]:ring-primary has-[:checked]:font-medium">
+						<input type="radio" name="category" value="{{ . }}" class="sr-only" {{ if eq $.category .
+							}}checked{{ end }} />
+						{{ . }}
+					</label>
 					{{ end }}
-				</select>
+				</div>
 			</div>
 
 			<div>
-				<label class="label" for="submission-email">
-					<span class="label-text">Your email</span>
-				</label>
-				<input id="submission-email" name="email" type="email" class="input w-full" maxlength="254" required
-					value="{{ .email }}" placeholder="you@example.com" />
+				<label for="submission-email"
+					class="block mb-2 text-xs font-medium uppercase tracking-wide text-base-content/55">Email</label>
+				<input id="submission-email" name="email" type="email"
+					class="input h-12 w-full rounded-xl bg-base-200/60 border-base-content/10 font-mono text-sm placeholder:text-base-content/35"
+					maxlength="254" required value="{{ .email }}" placeholder="you@example.com" autocomplete="off" />
+				<p class="mt-2 text-xs text-base-content/50">In case we need to ask about it.</p>
 			</div>
 
 			<div class="hidden" aria-hidden="true">
@@ -47,9 +58,8 @@
 				<input id="submission-company" name="company" type="text" tabindex="-1" autocomplete="off" value="" />
 			</div>
 
-			<div class="pt-2 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-				<p class="text-xs text-base-content/55">Real public services only.</p>
-				<button class="btn btn-primary" type="submit">Submit service</button>
+			<div class="pt-2 flex items-center justify-end">
+				<button class="btn btn-sm sm:btn-md btn-soft" type="submit">Submit</button>
 			</div>
 		</form>
 	</div>

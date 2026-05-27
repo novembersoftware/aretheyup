@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
+	"github.com/novembersoftware/aretheyup/config"
 	"github.com/novembersoftware/aretheyup/utils"
 	r "github.com/redis/go-redis/v9"
 	"github.com/rs/zerolog/log"
@@ -49,7 +50,7 @@ return {current, ttl}
 
 func NewRateLimit(redis *r.Client, cfg RateLimitConfig) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		if redis == nil || cfg.Limit <= 0 || cfg.Window <= 0 {
+		if !config.IsProd() || redis == nil || cfg.Limit <= 0 || cfg.Window <= 0 {
 			c.Next()
 			return
 		}
@@ -150,7 +151,7 @@ func ServiceSubmissionRouteRateLimit(redis *r.Client, limit int64, window time.D
 
 func GetReportRateLimitState(c *gin.Context, redis *r.Client, window time.Duration) (ReportRateLimitState, error) {
 	state := ReportRateLimitState{CanReport: true}
-	if redis == nil || window <= 0 {
+	if !config.IsProd() || redis == nil || window <= 0 {
 		return state, nil
 	}
 

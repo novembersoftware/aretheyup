@@ -6,10 +6,16 @@
 <body>
 	{{ template "navbar" . }}
 	<main class="flex-1">
-		<div class="mx-auto px-4 pt-14 pb-16 max-w-3xl">
+		<div class="mx-auto max-w-3xl px-4 pt-14 pb-16">
 			<div class="mb-6">
-				<h1 class="text-3xl sm:text-4xl font-bold tracking-tight text-base-content">Submit a service</h1>
-				<p class="text-sm text-base-content/65 mt-2">It will go live right away, marked as unverified.</p>
+				<a href="/" class="inline-flex items-center gap-2 text-sm text-base-content/60 hover:text-base-content">
+					{{ lucide "arrow-left" (dict "size" 16) }} Back to all services
+				</a>
+			</div>
+
+			<div class="mb-6">
+				<h1 class="text-3xl font-bold tracking-tight text-base-content sm:text-4xl">Submit a service</h1>
+				<p class="mt-2 text-sm text-base-content/70">Add a service to the tracker in a few seconds.</p>
 			</div>
 
 			<div id="submit-service-form-container">
