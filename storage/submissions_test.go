@@ -1,6 +1,9 @@
 package storage
 
-import "testing"
+import (
+	"testing"
+	"time"
+)
 
 func TestNormalizeSubmitServiceInputSuccess(t *testing.T) {
 	normalized, err := normalizeSubmitServiceInput(SubmitServiceInput{
@@ -75,5 +78,35 @@ func TestNormalizeHomepageURLRejectsInvalidHost(t *testing.T) {
 
 	if submitErr.Code != SubmitServiceErrorInvalid {
 		t.Fatalf("Code = %q, want %q", submitErr.Code, SubmitServiceErrorInvalid)
+	}
+}
+
+func TestSubmitServiceUsesDefaultProbeConfigValues(t *testing.T) {
+	now := time.Date(2026, time.January, 10, 12, 0, 0, 0, time.UTC)
+	cfg := DefaultProbeConfig(7, " https://example.com/health ", now)
+
+	if cfg.ServiceID != 7 {
+		t.Fatalf("ServiceID = %d, want 7", cfg.ServiceID)
+	}
+	if !cfg.Enabled {
+		t.Fatal("Enabled = false, want true")
+	}
+	if cfg.URL != "https://example.com/health" {
+		t.Fatalf("URL = %q, want trimmed homepage URL", cfg.URL)
+	}
+	if cfg.Method != "GET" {
+		t.Fatalf("Method = %q, want GET", cfg.Method)
+	}
+	if cfg.IntervalSeconds != 60 {
+		t.Fatalf("IntervalSeconds = %d, want 60", cfg.IntervalSeconds)
+	}
+	if cfg.TimeoutSeconds != 10 {
+		t.Fatalf("TimeoutSeconds = %d, want 10", cfg.TimeoutSeconds)
+	}
+	if cfg.ExpectedStatus != 200 {
+		t.Fatalf("ExpectedStatus = %d, want 200", cfg.ExpectedStatus)
+	}
+	if !cfg.NextRunAt.Equal(now) {
+		t.Fatalf("NextRunAt = %s, want %s", cfg.NextRunAt, now)
 	}
 }

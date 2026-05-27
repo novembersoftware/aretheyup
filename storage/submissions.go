@@ -8,6 +8,7 @@ import (
 	"net/url"
 	"path"
 	"strings"
+	"time"
 	"unicode"
 	"unicode/utf8"
 
@@ -126,6 +127,14 @@ func (s *Storage) SubmitService(ctx context.Context, input SubmitServiceInput) (
 		if err := tx.Create(&service).Error; err != nil {
 			if isUniqueConstraintError(err) {
 				return &SubmitServiceError{Code: SubmitServiceErrorDuplicate, Field: "name", Message: "A matching service already exists."}
+			}
+			return err
+		}
+
+		cfg := DefaultProbeConfig(service.ID, service.HomepageURL, time.Now().UTC())
+		if err := tx.Create(&cfg).Error; err != nil {
+			if isUniqueConstraintError(err) {
+				return &SubmitServiceError{Code: SubmitServiceErrorDuplicate, Field: "homepage_url", Message: "A probe config already exists for this service."}
 			}
 			return err
 		}
