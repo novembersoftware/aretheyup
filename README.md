@@ -17,7 +17,8 @@ It combines:
 The result is a clear status for each service:
 
 - `Operational`
-- `Issues Detected`
+- `Degraded`
+- `Outage`
 
 ## Key features
 
@@ -108,7 +109,8 @@ Status is calculated from a rolling 30-minute report window and compared to hist
 - Baselines are stored per service and hour-of-week bucket (`0..167`, UTC)
 - Cold start behavior uses conservative hard thresholds
 - Mature behavior uses z-score style anomaly checks
-- Probe failures (if available) can independently trigger `Issues Detected`
+- Probe failures (if available) can independently trigger `Degraded`
+- `Outage` requires either a strong report signal or degraded probes plus a real report anomaly
 
 Reference implementation:
 

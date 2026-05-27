@@ -1,6 +1,4 @@
-services:
-  api:
-    container_name: aretheyup-api
+x-app: &app
     build:
       context: .
       dockerfile: Dockerfile
@@ -11,18 +9,27 @@ services:
       DB_DSN: ${DB_DSN:-postgres://aretheyup:aretheyup@postgres:5432/aretheyup?sslmode=disable}
       REDIS_URL: ${REDIS_URL:-redis://redis:6379/0}
       ALLOWED_PAGE_ORIGINS: ${ALLOWED_PAGE_ORIGINS:-https://aretheyup.com,https://www.aretheyup.com}
+    restart: unless-stopped
+
+services:
+  api:
+    <<: *app
+    container_name: aretheyup-api
+    command: ["api"]
+    profiles: ["api", "app"]
     ports:
       - "8080:8080"
-    depends_on:
-      postgres:
-        condition: service_healthy
-      redis:
-        condition: service_healthy
-    restart: unless-stopped
+
+  probe:
+    <<: *app
+    container_name: aretheyup-probe
+    profiles: ["probe", "app"]
+    command: ["probe"]
 
   postgres:
     image: postgres:16-alpine
     container_name: aretheyup-postgres
+    profiles: ["deps"]
     environment:
       POSTGRES_USER: ${POSTGRES_USER:-aretheyup}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-aretheyup}
@@ -41,6 +48,7 @@ services:
   redis:
     image: redis:7-alpine
     container_name: aretheyup-redis
+    profiles: ["deps"]
     command: redis-server --appendonly yes
     ports:
       - "6379:6379"

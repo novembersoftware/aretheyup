@@ -8,8 +8,9 @@ import (
 type Status string
 
 const (
-	StatusOperational    Status = "Operational"
-	StatusIssuesDetected Status = "Issues Detected"
+	StatusOperational Status = "Operational"
+	StatusDegraded    Status = "Degraded"
+	StatusOutage      Status = "Outage"
 )
 
 const (
@@ -28,6 +29,8 @@ const (
 	minProbeSamples       = 3
 	// Fallback probe threshold when we do not yet trust probe baselines
 	probeFailRateThreshold = 0.8
+	// Softer report anomaly signal used only to combine with degraded probes
+	reportSupportZScoreThreshold = 1.0
 )
 
 type Signals struct {
@@ -48,14 +51,19 @@ type Signals struct {
 }
 
 func DetermineStatus(signals Signals) Status {
-	// One strong signal is enough to mark a service as having issues
-	if hasUserReportProblem(signals) || hasProbeProblem(signals) {
-		return StatusIssuesDetected
+	if hasUserReportOutage(signals) {
+		return StatusOutage
+	}
+	if hasProbeProblem(signals) {
+		if hasReportSupportAnomaly(signals) {
+			return StatusOutage
+		}
+		return StatusDegraded
 	}
 	return StatusOperational
 }
 
-func hasUserReportProblem(signals Signals) bool {
+func hasUserReportOutage(signals Signals) bool {
 	// Cold start path: avoid false positives when we barely have history
 	if signals.ReportBaselineWeeks < minBaselineWeeks {
 		return signals.RecentReports >= coldStartReportThreshold
@@ -66,6 +74,17 @@ func hasUserReportProblem(signals Signals) bool {
 	z := (float64(signals.RecentReports) - signals.ReportBaselineMean) / stdDev
 
 	return z >= reportZScoreThreshold && signals.RecentReports >= minAbsoluteReports
+}
+
+func hasReportSupportAnomaly(signals Signals) bool {
+	if signals.ReportBaselineWeeks < minBaselineWeeks {
+		return false
+	}
+
+	stdDev := math.Max(signals.ReportBaselineStdDev, 1.0)
+	z := (float64(signals.RecentReports) - signals.ReportBaselineMean) / stdDev
+
+	return z >= reportSupportZScoreThreshold && float64(signals.RecentReports) > signals.ReportBaselineMean
 }
 
 func hasProbeProblem(signals Signals) bool {

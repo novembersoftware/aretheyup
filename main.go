@@ -1,7 +1,9 @@
 package main
 
 import (
+	"context"
 	"os"
+	"time"
 
 	"github.com/joho/godotenv"
 	"github.com/novembersoftware/aretheyup/api"
@@ -49,12 +51,19 @@ func main() {
 	}
 
 	store := storage.New(db, redis)
+	if inserted, err := store.BackfillMissingProbeConfigs(context.Background(), time.Now().UTC()); err != nil {
+		log.Fatal().Err(err).Msg("Failed to backfill default probe configs")
+	} else if inserted > 0 {
+		log.Info().Int64("probe_configs_created", inserted).Msg("Backfilled missing default probe configs")
+	}
 
 	switch flags.Mode {
 	case utils.ModeAPI:
 		apiMode(store)
 	case utils.ModeManage:
 		manageMode(store)
+	case utils.ModeProbe:
+		probeMode(store)
 	case utils.ModeSeed:
 		seedMode(db)
 	}
@@ -69,6 +78,12 @@ func apiMode(store *storage.Storage) {
 func manageMode(store *storage.Storage) {
 	if err := manage.Start(store); err != nil {
 		log.Fatal().Err(err).Msg("TUI error")
+	}
+}
+
+func probeMode(store *storage.Storage) {
+	if err := workers.RunProbeWorker(store); err != nil {
+		log.Fatal().Err(err).Msg("Probe worker stopped")
 	}
 }
 

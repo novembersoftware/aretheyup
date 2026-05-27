@@ -100,14 +100,14 @@ func TestBuildServiceResponsesFromData(t *testing.T) {
 		t.Fatalf("len(buildServiceResponsesFromData) = %d, want 3", len(got))
 	}
 
-	if got[0].Status != string(algorithm.StatusIssuesDetected) {
-		t.Fatalf("service 1 status = %q, want %q", got[0].Status, algorithm.StatusIssuesDetected)
+	if got[0].Status != string(algorithm.StatusOutage) {
+		t.Fatalf("service 1 status = %q, want %q", got[0].Status, algorithm.StatusOutage)
 	}
 	if got[1].Status != string(algorithm.StatusOperational) {
 		t.Fatalf("service 2 status = %q, want %q", got[1].Status, algorithm.StatusOperational)
 	}
-	if got[2].Status != string(algorithm.StatusIssuesDetected) {
-		t.Fatalf("service 3 status = %q, want %q", got[2].Status, algorithm.StatusIssuesDetected)
+	if got[2].Status != string(algorithm.StatusDegraded) {
+		t.Fatalf("service 3 status = %q, want %q", got[2].Status, algorithm.StatusDegraded)
 	}
 
 	if got[1].IconURL != "https://s2.googleusercontent.com/s2/favicons?sz=64&domain=https://two.example" {
@@ -149,7 +149,7 @@ func TestBuildReportHistogram(t *testing.T) {
 		t.Fatalf("count 10 level = %q, want elevated", points[1].Level)
 	}
 
-	forced := BuildReportHistogram(now, nil, nil, algorithm.StatusIssuesDetected)
+	forced := BuildReportHistogram(now, nil, nil, algorithm.StatusOutage)
 	last := forced[len(forced)-1]
 	if last.Level != "high" {
 		t.Fatalf("last level during active issue = %q, want high", last.Level)
@@ -184,15 +184,26 @@ func TestBuildUptimeDays(t *testing.T) {
 		t.Fatalf("uptime = %.4f, want ~66.6667", uptime)
 	}
 
-	daysIssue, uptimeIssue, outageIssue, elevatedIssue := BuildUptimeDays(windowStart, 3, now, incidents, reports, algorithm.StatusIssuesDetected)
+	daysIssue, uptimeIssue, outageIssue, elevatedIssue := BuildUptimeDays(windowStart, 3, now, incidents, reports, algorithm.StatusOutage)
 	if daysIssue[2].Level != "outage" {
-		t.Fatalf("last day level during active issue = %q, want outage", daysIssue[2].Level)
+		t.Fatalf("last day level during active outage = %q, want outage", daysIssue[2].Level)
 	}
 	if outageIssue != 2 || elevatedIssue != 1 {
 		t.Fatalf("issue counts = outage:%d elevated:%d, want outage:2 elevated:1", outageIssue, elevatedIssue)
 	}
 	if math.Abs(uptimeIssue-33.3333333333) > 0.0001 {
 		t.Fatalf("uptime with active issue = %.4f, want ~33.3333", uptimeIssue)
+	}
+
+	daysDegraded, uptimeDegraded, outageDegraded, elevatedDegraded := BuildUptimeDays(windowStart, 3, now, incidents, reports, algorithm.StatusDegraded)
+	if daysDegraded[2].Level != "elevated" {
+		t.Fatalf("last day level during degraded status = %q, want elevated", daysDegraded[2].Level)
+	}
+	if outageDegraded != 1 || elevatedDegraded != 2 {
+		t.Fatalf("degraded counts = outage:%d elevated:%d, want outage:1 elevated:2", outageDegraded, elevatedDegraded)
+	}
+	if math.Abs(uptimeDegraded-33.3333333333) > 0.0001 {
+		t.Fatalf("uptime with degraded status = %.4f, want ~33.3333", uptimeDegraded)
 	}
 }
 

@@ -144,7 +144,7 @@ func BuildReportHistogram(
 		points[i].Level = level
 	}
 
-	if currentStatus == algorithm.StatusIssuesDetected && len(points) > 0 {
+	if currentStatus == algorithm.StatusOutage && len(points) > 0 {
 		last := len(points) - 1
 		points[last].Level = "high"
 		if points[last].HeightPct < 20 {
@@ -220,19 +220,29 @@ func BuildUptimeDays(
 		days = append(days, structs.UptimeDayResponse{Label: label, Level: level})
 	}
 
-	if currentStatus == algorithm.StatusIssuesDetected && len(days) > 0 {
+	if len(days) > 0 {
 		last := len(days) - 1
-		if days[last].Level == "operational" {
-			upDays--
-		}
-		if days[last].Level == "elevated" {
-			elevatedDays--
-			upDays--
-		}
-		if days[last].Level != "outage" {
-			days[last].Level = "outage"
-			days[last].Label = days[last].Label + " - current issue"
-			outageDays++
+		switch currentStatus {
+		case algorithm.StatusOutage:
+			if days[last].Level == "operational" {
+				upDays--
+			}
+			if days[last].Level == "elevated" {
+				elevatedDays--
+				upDays--
+			}
+			if days[last].Level != "outage" {
+				days[last].Level = "outage"
+				days[last].Label = days[last].Label + " - current outage"
+				outageDays++
+			}
+		case algorithm.StatusDegraded:
+			if days[last].Level == "operational" {
+				upDays--
+				elevatedDays++
+				days[last].Level = "elevated"
+				days[last].Label = days[last].Label + " - currently degraded"
+			}
 		}
 	}
 

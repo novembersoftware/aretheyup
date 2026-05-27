@@ -11,6 +11,7 @@ type Mode string
 const (
 	ModeAPI    Mode = "api"
 	ModeManage Mode = "manage"
+	ModeProbe  Mode = "probe"
 	ModeSeed   Mode = "seed"
 )
 
@@ -32,7 +33,7 @@ func ParseFlags() Flags {
 	mode := Mode(os.Args[1])
 
 	switch mode {
-	case ModeAPI, ModeManage:
+	case ModeAPI, ModeManage, ModeProbe:
 		return Flags{Mode: mode}
 
 	case ModeSeed:
@@ -55,6 +56,7 @@ func printUsage() {
 	fmt.Fprintf(os.Stderr, "Subcommands:\n")
 	fmt.Fprintf(os.Stderr, "  api      Start the HTTP API server (default)\n")
 	fmt.Fprintf(os.Stderr, "  manage   Open the service management TUI\n")
+	fmt.Fprintf(os.Stderr, "  probe    Start the synthetic probe worker\n")
 	fmt.Fprintf(os.Stderr, "  seed     Seed the database with test data\n")
 	fmt.Fprintf(os.Stderr, "           --count int   number of services to seed (default 10)\n")
 	fmt.Fprintf(os.Stderr, "           --clear       clear existing data before seeding\n")
