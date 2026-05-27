@@ -168,17 +168,16 @@ func (e *httpProbeExecutor) Execute(ctx context.Context, cfg structs.ProbeConfig
 
 	statusCode := resp.StatusCode
 	responseTimeMs := int(time.Since(start).Milliseconds())
-	expectedStatus := normalizedExpectedStatus(cfg.ExpectedStatus)
 
 	result := structs.ProbeResult{
 		Region:         probeRegionGlobal,
-		Success:        statusCode == expectedStatus,
+		Success:        isFunctionalProbeStatus(statusCode, cfg.ExpectedStatus),
 		StatusCode:     &statusCode,
 		ResponseTimeMs: &responseTimeMs,
 	}
 	if !result.Success {
 		result.FailureType = structs.ProbeFailureTypeHTTPStatus
-		result.ErrorMessage = fmt.Sprintf("unexpected status: got %d want %d", statusCode, expectedStatus)
+		result.ErrorMessage = fmt.Sprintf("unhealthy status: got %d", statusCode)
 	}
 
 	return result, nil
@@ -197,6 +196,17 @@ func normalizedExpectedStatus(status int) int {
 		return http.StatusOK
 	}
 	return status
+}
+
+func isFunctionalProbeStatus(statusCode, expectedStatus int) bool {
+	if statusCode == normalizedExpectedStatus(expectedStatus) {
+		return true
+	}
+
+	// A reachable app that returns auth, rate-limit, or other client responses is
+	// still functionally up for our probe purposes. Reserve failures for upstream
+	// server errors and transport-level problems.
+	return statusCode >= 400 && statusCode < 500
 }
 
 func normalizedProbeTimeout(timeoutSeconds int) int {

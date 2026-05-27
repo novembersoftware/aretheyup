@@ -140,6 +140,35 @@ func TestHTTPProbeExecutorExecuteUnexpectedStatus(t *testing.T) {
 	}
 }
 
+func TestHTTPProbeExecutorExecuteClientStatusIsFunctional(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusTooManyRequests)
+	}))
+	defer server.Close()
+
+	executor := &httpProbeExecutor{client: &http.Client{}}
+	result, err := executor.Execute(context.Background(), structs.ProbeConfig{
+		URL:            server.URL,
+		Method:         http.MethodGet,
+		ExpectedStatus: http.StatusOK,
+	})
+	if err != nil {
+		t.Fatalf("Execute() error = %v", err)
+	}
+	if !result.Success {
+		t.Fatal("Execute() success = false, want true for a functional 4xx response")
+	}
+	if result.StatusCode == nil || *result.StatusCode != http.StatusTooManyRequests {
+		t.Fatalf("Execute() status code = %v, want 429", result.StatusCode)
+	}
+	if result.FailureType != "" {
+		t.Fatalf("Execute() failure type = %q, want empty for functional 4xx status", result.FailureType)
+	}
+	if result.ErrorMessage != "" {
+		t.Fatalf("Execute() error message = %q, want empty for functional 4xx status", result.ErrorMessage)
+	}
+}
+
 func TestHTTPProbeExecutorExecuteTimeout(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		time.Sleep(150 * time.Millisecond)
