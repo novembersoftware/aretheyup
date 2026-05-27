@@ -19,9 +19,10 @@ type fakeProbeStore struct {
 	mu        sync.Mutex
 	claimed   [][]structs.ProbeConfig
 	completed []struct {
-		configID uint
-		token    string
-		result   structs.ProbeResult
+		configID  uint
+		token     string
+		result    structs.ProbeResult
+		checkedAt time.Time
 	}
 	deleteCutoffs []time.Time
 }
@@ -38,17 +39,19 @@ func (s *fakeProbeStore) ClaimDueProbeConfigs(_ context.Context, _ time.Time, _ 
 	return next, nil
 }
 
-func (s *fakeProbeStore) CompleteProbeLease(_ context.Context, configID uint, leaseToken string, result structs.ProbeResult, _ time.Time) error {
+func (s *fakeProbeStore) CompleteProbeLease(_ context.Context, configID uint, leaseToken string, result structs.ProbeResult, checkedAt time.Time) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.completed = append(s.completed, struct {
-		configID uint
-		token    string
-		result   structs.ProbeResult
+		configID  uint
+		token     string
+		result    structs.ProbeResult
+		checkedAt time.Time
 	}{
-		configID: configID,
-		token:    leaseToken,
-		result:   result,
+		configID:  configID,
+		token:     leaseToken,
+		result:    result,
+		checkedAt: checkedAt,
 	})
 	return nil
 }
@@ -67,6 +70,16 @@ type fakeProbeExecutor struct {
 
 func (e fakeProbeExecutor) Execute(_ context.Context, _ structs.ProbeConfig) (structs.ProbeResult, error) {
 	return e.result, e.err
+}
+
+type slowProbeExecutor struct {
+	delay  time.Duration
+	result structs.ProbeResult
+}
+
+func (e slowProbeExecutor) Execute(_ context.Context, _ structs.ProbeConfig) (structs.ProbeResult, error) {
+	time.Sleep(e.delay)
+	return e.result, nil
 }
 
 func TestHTTPProbeExecutorExecuteSuccess(t *testing.T) {
@@ -289,6 +302,33 @@ func TestRunProbeSweepCompletesClaimedConfigs(t *testing.T) {
 	}
 	if store.completed[0].configID != 1 || store.completed[1].configID != 2 {
 		t.Fatalf("completed config IDs = %+v, want [1 2]", store.completed)
+	}
+}
+
+func TestRunProbeSweepSetsCheckedAtAfterProbeExecution(t *testing.T) {
+	store := &fakeProbeStore{
+		claimed: [][]structs.ProbeConfig{
+			{
+				{ID: 1, ServiceID: 10, LeaseToken: "lease-a"},
+			},
+		},
+	}
+
+	start := time.Now().UTC()
+	delay := 20 * time.Millisecond
+	err := runProbeSweep(context.Background(), store, slowProbeExecutor{
+		delay:  delay,
+		result: structs.ProbeResult{Region: probeRegionGlobal, Success: true},
+	}, start)
+	if err != nil {
+		t.Fatalf("runProbeSweep() error = %v", err)
+	}
+
+	if len(store.completed) != 1 {
+		t.Fatalf("len(completed) = %d, want 1", len(store.completed))
+	}
+	if cutoff := start.Add(delay); store.completed[0].checkedAt.Before(cutoff) {
+		t.Fatalf("checkedAt = %s, want after probe execution cutoff %s", store.completed[0].checkedAt, cutoff)
 	}
 }
 

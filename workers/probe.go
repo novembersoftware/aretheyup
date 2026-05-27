@@ -87,7 +87,6 @@ func runProbeSweep(ctx context.Context, store probeStore, executor probeExecutor
 		}
 
 		for _, cfg := range claimed {
-			checkedAt := time.Now().UTC()
 			result, err := executeClaimedProbe(ctx, executor, cfg)
 			if err != nil {
 				log.Error().
@@ -98,6 +97,7 @@ func runProbeSweep(ctx context.Context, store probeStore, executor probeExecutor
 				continue
 			}
 
+			checkedAt := time.Now().UTC()
 			if err := store.CompleteProbeLease(ctx, cfg.ID, cfg.LeaseToken, result, checkedAt); err != nil {
 				log.Error().
 					Err(err).

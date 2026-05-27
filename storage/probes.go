@@ -158,17 +158,12 @@ func (s *Storage) ClaimDueProbeConfigs(ctx context.Context, now time.Time, limit
 func (s *Storage) CompleteProbeLease(ctx context.Context, configID uint, leaseToken string, result structs.ProbeResult, checkedAt time.Time) error {
 	return s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		var config structs.ProbeConfig
-		if err := tx.Where("id = ? AND lease_token = ?", configID, leaseToken).First(&config).Error; err != nil {
+		if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).
+			Where("id = ? AND lease_token = ? AND lease_expires_at IS NOT NULL AND lease_expires_at > ?", configID, leaseToken, checkedAt).
+			First(&config).Error; err != nil {
 			if errors.Is(err, gorm.ErrRecordNotFound) {
 				return errProbeLeaseNotFound
 			}
-			return err
-		}
-
-		result.ServiceID = config.ServiceID
-		result.CreatedAt = checkedAt
-		result.UpdatedAt = checkedAt
-		if err := tx.Create(&result).Error; err != nil {
 			return err
 		}
 
@@ -181,9 +176,18 @@ func (s *Storage) CompleteProbeLease(ctx context.Context, configID uint, leaseTo
 			updates["last_success_at"] = checkedAt
 		}
 
-		return tx.Model(&structs.ProbeConfig{}).
-			Where("id = ? AND lease_token = ?", configID, leaseToken).
-			Updates(updates).Error
+		updateResult := tx.Model(&config).Updates(updates)
+		if updateResult.Error != nil {
+			return updateResult.Error
+		}
+		if updateResult.RowsAffected != 1 {
+			return errProbeLeaseNotFound
+		}
+
+		result.ServiceID = config.ServiceID
+		result.CreatedAt = checkedAt
+		result.UpdatedAt = checkedAt
+		return tx.Create(&result).Error
 	})
 }
 
