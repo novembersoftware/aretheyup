@@ -31,6 +31,7 @@ func MigrateDB(db *gorm.DB) error {
 	err := db.AutoMigrate(
 		// register schema structs here
 		&structs.Service{},
+		&structs.ServiceSubmission{},
 		&structs.UserReport{},
 		&structs.ProbeResult{},
 		&structs.ProbeConfig{},

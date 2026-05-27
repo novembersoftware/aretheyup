@@ -1,0 +1,24 @@
+{{define "submit-service.html"}}
+<!doctype html>
+<html lang="en" data-theme="dracula">
+{{ template "head" . }}
+
+<body>
+	{{ template "navbar" . }}
+	<main class="flex-1">
+		<div class="mx-auto px-4 pt-14 pb-16 max-w-3xl">
+			<div class="mb-6">
+				<h1 class="text-3xl sm:text-4xl font-bold tracking-tight text-base-content">Submit a service</h1>
+				<p class="text-sm text-base-content/65 mt-2">It will go live right away, marked as unverified.</p>
+			</div>
+
+			<div id="submit-service-form-container">
+				{{ template "submit-service-form" . }}
+			</div>
+		</div>
+	</main>
+	{{ template "footer" . }}
+</body>
+
+</html>
+{{ end }}

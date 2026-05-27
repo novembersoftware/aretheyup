@@ -49,6 +49,11 @@ func Start(store *storage.Storage) {
 			config.C.ReportRateLimitMaxRequests,
 			time.Duration(config.C.ReportRateLimitWindowSeconds)*time.Second,
 		),
+		middleware.ServiceSubmissionRouteRateLimit(
+			store.Redis(),
+			config.C.SubmitRateLimitMaxRequests,
+			time.Duration(config.C.SubmitRateLimitWindowSeconds)*time.Second,
+		),
 		middleware.RequireWebsiteAPIOrigin(config.C.AllowedPageOrigins),
 	)
 

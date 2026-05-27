@@ -34,6 +34,8 @@ type ReportRateLimitState struct {
 const (
 	reportRateLimitName  = "report-route"
 	reportRateLimitScope = "POST:/api/service/:slug/report"
+	submitRateLimitName  = "service-submit-route"
+	submitRateLimitScope = "POST:/api/services/submit"
 )
 
 var rateLimitScript = r.NewScript(`
@@ -133,6 +135,19 @@ func ReportRouteRateLimit(redis *r.Client, limit int64, window time.Duration) gi
 	})
 }
 
+func ServiceSubmissionRouteRateLimit(redis *r.Client, limit int64, window time.Duration) gin.HandlerFunc {
+	return NewRateLimit(redis, RateLimitConfig{
+		Name:    submitRateLimitName,
+		Limit:   limit,
+		Window:  window,
+		Message: "You're submitting too quickly. Please try again later.",
+		KeyFunc: serviceSubmissionRouteKeyPart,
+		ScopeFunc: func(c *gin.Context) string {
+			return submitRateLimitScope
+		},
+	})
+}
+
 func GetReportRateLimitState(c *gin.Context, redis *r.Client, window time.Duration) (ReportRateLimitState, error) {
 	state := ReportRateLimitState{CanReport: true}
 	if redis == nil || window <= 0 {
@@ -194,6 +209,11 @@ func reportRouteKeyPart(c *gin.Context) string {
 	fingerprint := stableHash(utils.GetClientIP(c) + "|" + c.GetHeader("User-Agent") + "|" + c.GetHeader("Accept-Language"))
 
 	return stableHash("report|" + c.Param("slug") + "|" + fingerprint)
+}
+
+func serviceSubmissionRouteKeyPart(c *gin.Context) string {
+	fingerprint := stableHash(utils.GetClientIP(c) + "|" + c.GetHeader("User-Agent") + "|" + c.GetHeader("Accept-Language"))
+	return stableHash("service-submit|" + fingerprint)
 }
 
 func buildRateLimitKey(name string, scope string, keyPart string) string {

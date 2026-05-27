@@ -1,0 +1,57 @@
+{{ define "submit-service-form" }}
+<div class="rounded-2xl border border-base-content/10 bg-base-100/90">
+	<div class="p-5 sm:p-6">
+		{{ if .error }}
+		<div class="mb-4 rounded-xl border border-error/30 bg-error/10 px-4 py-3 text-sm text-error">{{ .error }}</div>
+		{{ end }}
+
+		<form class="grid grid-cols-1 gap-4" hx-post="/api/services/submit" hx-target="#submit-service-form-container"
+			hx-swap="innerHTML" hx-disabled-elt="find button[type='submit']">
+			<div>
+				<label class="label" for="submission-name">
+					<span class="label-text">Service name</span>
+				</label>
+				<input id="submission-name" name="name" class="input w-full" maxlength="100" required
+					value="{{ .name }}" placeholder="Acme Payments" />
+			</div>
+
+			<div>
+				<label class="label" for="submission-homepage-url">
+					<span class="label-text">Homepage URL</span>
+				</label>
+				<input id="submission-homepage-url" name="homepage_url" type="url" class="input w-full" maxlength="255"
+					required value="{{ .homepage_url }}" placeholder="https://example.com" />
+			</div>
+
+			<div>
+				<label class="label" for="submission-category">
+					<span class="label-text">Category</span>
+				</label>
+				<select id="submission-category" name="category" class="select w-full" required>
+					{{ range .categories }}
+					<option value="{{ . }}" {{ if eq $.category . }}selected{{ end }}>{{ . }}</option>
+					{{ end }}
+				</select>
+			</div>
+
+			<div>
+				<label class="label" for="submission-email">
+					<span class="label-text">Your email</span>
+				</label>
+				<input id="submission-email" name="email" type="email" class="input w-full" maxlength="254" required
+					value="{{ .email }}" placeholder="you@example.com" />
+			</div>
+
+			<div class="hidden" aria-hidden="true">
+				<label for="submission-company">Company</label>
+				<input id="submission-company" name="company" type="text" tabindex="-1" autocomplete="off" value="" />
+			</div>
+
+			<div class="pt-2 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+				<p class="text-xs text-base-content/55">Real public services only.</p>
+				<button class="btn btn-primary" type="submit">Submit service</button>
+			</div>
+		</form>
+	</div>
+</div>
+{{ end }}

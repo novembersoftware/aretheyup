@@ -12,6 +12,7 @@ type Service struct {
 	Category     string `gorm:"not null;default:'other'"`
 	HomepageURL  string `gorm:"not null"`
 	Active       bool   `gorm:"not null;default:true"`
+	Submissions  []ServiceSubmission
 	UserReports  []UserReport
 	ProbeResults []ProbeResult
 	// One baseline row per hour-of-week bucket for this service
@@ -20,6 +21,22 @@ type Service struct {
 	ProbeConfig ProbeConfig
 	CreatedAt   time.Time
 	UpdatedAt   time.Time
+}
+
+type ServiceSubmission struct {
+	ID                   uint   `gorm:"primaryKey"`
+	ServiceID            *uint  `gorm:"index"`
+	Name                 string `gorm:"not null"`
+	Slug                 string `gorm:"not null;index"`
+	Description          string `gorm:"not null"`
+	Category             string `gorm:"not null;default:'other'"`
+	HomepageURL          string `gorm:"not null"`
+	NormalizedDomain     string `gorm:"not null;index"`
+	SubmitterEmail       string `gorm:"not null;index"`
+	SubmitterFingerprint string `gorm:"not null;index"`
+	Status               string `gorm:"not null;index;default:'published_unverified'"`
+	CreatedAt            time.Time
+	UpdatedAt            time.Time
 }
 
 type ServiceBaseline struct {

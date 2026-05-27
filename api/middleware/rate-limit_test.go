@@ -36,3 +36,31 @@ func TestReportRouteKeyPartIgnoresClientFingerprintHeader(t *testing.T) {
 		t.Fatalf("expected same key part when only X-Fingerprint differs, got %q and %q", gotA, gotB)
 	}
 }
+
+func TestServiceSubmissionRouteKeyPartStableAcrossPayloadChanges(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	w1 := httptest.NewRecorder()
+	c1, r1 := gin.CreateTestContext(w1)
+	r1.POST("/api/services/submit", func(c *gin.Context) {})
+	req1 := httptest.NewRequest("POST", "/api/services/submit", nil)
+	req1.RemoteAddr = "203.0.113.10:12345"
+	req1.Header.Set("User-Agent", "agent")
+	req1.Header.Set("Accept-Language", "en-US")
+	req1.Header.Set("X-Fingerprint", "attacker-a")
+	c1.Request = req1
+
+	w2 := httptest.NewRecorder()
+	c2, r2 := gin.CreateTestContext(w2)
+	r2.POST("/api/services/submit", func(c *gin.Context) {})
+	req2 := httptest.NewRequest("POST", "/api/services/submit", nil)
+	req2.RemoteAddr = "203.0.113.10:54321"
+	req2.Header.Set("User-Agent", "agent")
+	req2.Header.Set("Accept-Language", "en-US")
+	req2.Header.Set("X-Fingerprint", "attacker-b")
+	c2.Request = req2
+
+	if gotA, gotB := serviceSubmissionRouteKeyPart(c1), serviceSubmissionRouteKeyPart(c2); gotA != gotB {
+		t.Fatalf("expected same key part when only X-Fingerprint differs, got %q and %q", gotA, gotB)
+	}
+}
