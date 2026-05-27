@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
+	"github.com/novembersoftware/aretheyup/config"
 	"github.com/novembersoftware/aretheyup/utils"
 	r "github.com/redis/go-redis/v9"
 	"github.com/rs/zerolog/log"
@@ -34,6 +35,8 @@ type ReportRateLimitState struct {
 const (
 	reportRateLimitName  = "report-route"
 	reportRateLimitScope = "POST:/api/service/:slug/report"
+	submitRateLimitName  = "service-submit-route"
+	submitRateLimitScope = "POST:/api/services/submit"
 )
 
 var rateLimitScript = r.NewScript(`
@@ -47,7 +50,7 @@ return {current, ttl}
 
 func NewRateLimit(redis *r.Client, cfg RateLimitConfig) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		if redis == nil || cfg.Limit <= 0 || cfg.Window <= 0 {
+		if !config.IsProd() || redis == nil || cfg.Limit <= 0 || cfg.Window <= 0 {
 			c.Next()
 			return
 		}
@@ -133,9 +136,22 @@ func ReportRouteRateLimit(redis *r.Client, limit int64, window time.Duration) gi
 	})
 }
 
+func ServiceSubmissionRouteRateLimit(redis *r.Client, limit int64, window time.Duration) gin.HandlerFunc {
+	return NewRateLimit(redis, RateLimitConfig{
+		Name:    submitRateLimitName,
+		Limit:   limit,
+		Window:  window,
+		Message: "You're submitting too quickly. Please try again later.",
+		KeyFunc: serviceSubmissionRouteKeyPart,
+		ScopeFunc: func(c *gin.Context) string {
+			return submitRateLimitScope
+		},
+	})
+}
+
 func GetReportRateLimitState(c *gin.Context, redis *r.Client, window time.Duration) (ReportRateLimitState, error) {
 	state := ReportRateLimitState{CanReport: true}
-	if redis == nil || window <= 0 {
+	if !config.IsProd() || redis == nil || window <= 0 {
 		return state, nil
 	}
 
@@ -191,9 +207,13 @@ func hitRateLimit(c *gin.Context, redis *r.Client, key string, window time.Durat
 }
 
 func reportRouteKeyPart(c *gin.Context) string {
-	fingerprint := stableHash(utils.GetClientIP(c) + "|" + c.GetHeader("User-Agent") + "|" + c.GetHeader("Accept-Language"))
+	ipKey := stableHash(utils.GetClientIP(c))
+	return stableHash("report|" + c.Param("slug") + "|" + ipKey)
+}
 
-	return stableHash("report|" + c.Param("slug") + "|" + fingerprint)
+func serviceSubmissionRouteKeyPart(c *gin.Context) string {
+	ipKey := stableHash(utils.GetClientIP(c))
+	return stableHash("service-submit|" + ipKey)
 }
 
 func buildRateLimitKey(name string, scope string, keyPart string) string {

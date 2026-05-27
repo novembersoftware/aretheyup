@@ -1,0 +1,32 @@
+{{ define "submit-service-success" }}
+<div class="rounded-2xl border border-base-content/10 bg-base-100/90 shadow-sm backdrop-blur">
+	<div class="p-5 sm:p-6">
+		{{ if .already_tracked }}
+		<div class="mb-4">
+			<span class="text-xs font-medium px-2 py-0.5 rounded-md bg-info/20 text-info">Already tracked</span>
+		</div>
+		<h2 class="text-2xl sm:text-3xl font-bold tracking-tight">Already on the list.</h2>
+		<p class="text-sm text-base-content/65 mt-1">Someone got to it first.</p>
+		{{ else if .service_slug }}
+		<div class="mb-4">
+			<span class="text-xs font-medium px-2 py-0.5 rounded-md bg-success/20 text-success">Live</span>
+		</div>
+		<h2 class="text-2xl sm:text-3xl font-bold tracking-tight">It's live.</h2>
+		<p class="text-sm text-base-content/65 mt-1">Added to the list.</p>
+		{{ else }}
+		<div class="mb-4">
+			<span class="text-xs font-medium px-2 py-0.5 rounded-md bg-success/20 text-success">Received</span>
+		</div>
+		<h2 class="text-2xl sm:text-3xl font-bold tracking-tight">Got it.</h2>
+		<p class="text-sm text-base-content/65 mt-1">Thanks for sending it in.</p>
+		{{ end }}
+
+		<div class="mt-6 flex flex-wrap items-center gap-2">
+			{{ if .service_slug }}
+			<a class="btn btn-sm sm:btn-md btn-soft" href="/{{ .service_slug }}">View service</a>
+			{{ end }}
+			<a class="btn btn-sm sm:btn-md btn-ghost" href="/submit-service">Submit another</a>
+		</div>
+	</div>
+</div>
+{{ end }}

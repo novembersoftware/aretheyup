@@ -67,6 +67,7 @@ func (s *Storage) ListServices(ctx context.Context, limit, offset int) ([]Servic
 		       COUNT(ur.id) AS recent_report_count
 		FROM services s
 		LEFT JOIN user_reports ur ON ur.service_id = s.id AND ur.created_at > ?
+		WHERE s.active = true
 		GROUP BY s.id
 		ORDER BY recent_report_count DESC
 		LIMIT ?
@@ -94,7 +95,7 @@ func (s *Storage) SearchServices(ctx context.Context, query string) ([]ServiceRo
 		       COUNT(ur.id) AS recent_report_count
 		FROM services s
 		LEFT JOIN user_reports ur ON ur.service_id = s.id AND ur.created_at > ?
-		WHERE LOWER(s.name) LIKE LOWER(?)
+		WHERE s.active = true AND LOWER(s.name) LIKE LOWER(?)
 		GROUP BY s.id
 		ORDER BY recent_report_count DESC
 		LIMIT 48
@@ -105,7 +106,7 @@ func (s *Storage) SearchServices(ctx context.Context, query string) ([]ServiceRo
 // GetServiceBySlug returns a single service by its slug, or an error if not found
 func (s *Storage) GetServiceBySlug(ctx context.Context, slug string) (*structs.Service, error) {
 	var service structs.Service
-	result := s.db.WithContext(ctx).Where("slug = ?", slug).First(&service)
+	result := s.db.WithContext(ctx).Where("slug = ? AND active = ?", slug, true).First(&service)
 	if result.Error != nil {
 		return nil, result.Error
 	}
@@ -133,7 +134,7 @@ func (s *Storage) CreateUserReport(ctx context.Context, report *structs.UserRepo
 // GetServiceCount returns the total number of services.
 func (s *Storage) GetServiceCount(ctx context.Context) (int64, error) {
 	var count int64
-	result := s.db.WithContext(ctx).Model(&structs.Service{}).Count(&count)
+	result := s.db.WithContext(ctx).Model(&structs.Service{}).Where("active = ?", true).Count(&count)
 	return count, result.Error
 }
 
@@ -206,12 +207,22 @@ func (s *Storage) CreateService(ctx context.Context, service *structs.Service) e
 
 // UpdateService saves all fields of an existing service (must have a valid ID).
 func (s *Storage) UpdateService(ctx context.Context, service *structs.Service) error {
-	return s.db.WithContext(ctx).Save(service).Error
+	if err := s.db.WithContext(ctx).Save(service).Error; err != nil {
+		return err
+	}
+
+	s.invalidateServiceListCache(ctx)
+	return nil
 }
 
 // DeleteService removes a service by its primary key.
 func (s *Storage) DeleteService(ctx context.Context, id uint) error {
-	return s.db.WithContext(ctx).Delete(&structs.Service{}, id).Error
+	if err := s.db.WithContext(ctx).Delete(&structs.Service{}, id).Error; err != nil {
+		return err
+	}
+
+	s.invalidateServiceListCache(ctx)
+	return nil
 }
 
 // GetProbeConfig returns the probe config for a service, or nil if none exists.
