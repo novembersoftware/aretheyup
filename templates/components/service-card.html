@@ -97,7 +97,7 @@
 							}}</span>
 						<span class="text-sm text-base-content/40">/ {{ .service.ProbeRecentTotal }} healthy</span>
 					</div>
-					<div class="mt-3 flex items-center gap-0.5">
+					<div class="mt-3 flex flex-row-reverse items-center gap-0.5">
 						{{ range .service.ProbeHistory }}
 						<div title="{{ .Label }}"
 							class="h-1 flex-1 rounded-full {{ if .Success }}bg-success{{ else }}bg-error{{ end }}">
@@ -167,7 +167,7 @@
 							<div class="h-px bg-base-content/5"></div>
 							<div class="h-px bg-base-content/5"></div>
 						</div>
-						<div class="relative h-full flex items-end gap-1">
+						<div class="relative h-full flex flex-row-reverse items-end gap-1">
 							{{ range .service.ProbeHistory }}
 							<div class="group flex-1 h-full flex items-end"
 								title="{{ .Label }} · {{ if .Success }}Healthy{{ else }}Failure{{ end }}{{ if .StatusCode }} · HTTP {{ .StatusCode }}{{ end }}{{ if .ResponseTimeMs }} · {{ .ResponseTimeMs }} ms{{ end }}">
