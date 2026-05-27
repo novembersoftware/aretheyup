@@ -207,14 +207,13 @@ func hitRateLimit(c *gin.Context, redis *r.Client, key string, window time.Durat
 }
 
 func reportRouteKeyPart(c *gin.Context) string {
-	fingerprint := stableHash(utils.GetClientIP(c) + "|" + c.GetHeader("User-Agent") + "|" + c.GetHeader("Accept-Language"))
-
-	return stableHash("report|" + c.Param("slug") + "|" + fingerprint)
+	ipKey := stableHash(utils.GetClientIP(c))
+	return stableHash("report|" + c.Param("slug") + "|" + ipKey)
 }
 
 func serviceSubmissionRouteKeyPart(c *gin.Context) string {
-	fingerprint := stableHash(utils.GetClientIP(c) + "|" + c.GetHeader("User-Agent") + "|" + c.GetHeader("Accept-Language"))
-	return stableHash("service-submit|" + fingerprint)
+	ipKey := stableHash(utils.GetClientIP(c))
+	return stableHash("service-submit|" + ipKey)
 }
 
 func buildRateLimitKey(name string, scope string, keyPart string) string {
