@@ -1,0 +1,50 @@
+package services
+
+import (
+	"strings"
+	"testing"
+)
+
+func TestHotStatusIndexes(t *testing.T) {
+	expected := []hotStatusIndex{
+		{
+			name:      "idx_probe_results_service_created_desc",
+			statement: "CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_probe_results_service_created_desc ON probe_results (service_id, created_at DESC)",
+		},
+		{
+			name:      "idx_probe_results_service_failed_created_desc",
+			statement: "CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_probe_results_service_failed_created_desc ON probe_results (service_id, created_at DESC) WHERE success = false",
+		},
+		{
+			name:      "idx_probe_results_created_at",
+			statement: "CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_probe_results_created_at ON probe_results (created_at)",
+		},
+		{
+			name:      "idx_user_reports_service_created_desc",
+			statement: "CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_user_reports_service_created_desc ON user_reports (service_id, created_at DESC)",
+		},
+		{
+			name:      "idx_incidents_active_by_service",
+			statement: "CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_incidents_active_by_service ON incidents (service_id) WHERE resolved_at IS NULL",
+		},
+	}
+
+	if len(hotStatusIndexes) != len(expected) {
+		t.Fatalf("hotStatusIndexes has %d entries, want %d", len(hotStatusIndexes), len(expected))
+	}
+
+	seen := map[string]bool{}
+	for i, got := range hotStatusIndexes {
+		want := expected[i]
+		if got != want {
+			t.Fatalf("hotStatusIndexes[%d] = %#v, want %#v", i, got, want)
+		}
+		if seen[got.name] {
+			t.Fatalf("duplicate index name %q", got.name)
+		}
+		seen[got.name] = true
+		if !strings.Contains(got.statement, "CREATE INDEX CONCURRENTLY IF NOT EXISTS") {
+			t.Fatalf("%s is not created concurrently and idempotently: %s", got.name, got.statement)
+		}
+	}
+}
