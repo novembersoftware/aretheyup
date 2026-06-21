@@ -3,6 +3,8 @@ package main
 import (
 	"context"
 	"os"
+	"os/signal"
+	"syscall"
 	"time"
 
 	"github.com/joho/godotenv"
@@ -66,12 +68,13 @@ func main() {
 		probeMode(store)
 	case utils.ModeSeed:
 		seedMode(db)
+	case utils.ModeWorker:
+		workerMode(store)
 	}
 }
 
 func apiMode(store *storage.Storage) {
-	workers.StartBaselineRefresher(store)
-	workers.StartIncidentTracker(store)
+	log.Info().Msg("Starting API mode")
 	api.Start(store)
 }
 
@@ -82,6 +85,7 @@ func manageMode(store *storage.Storage) {
 }
 
 func probeMode(store *storage.Storage) {
+	log.Info().Msg("Starting probe mode")
 	if err := workers.RunProbeWorker(store); err != nil {
 		log.Fatal().Err(err).Msg("Probe worker stopped")
 	}
@@ -89,4 +93,17 @@ func probeMode(store *storage.Storage) {
 
 func seedMode(db *gorm.DB) {
 	services.SeedDB(db, flags.SeedCount, flags.SeedClear)
+}
+
+func workerMode(store *storage.Storage) {
+	log.Info().Msg("Starting worker mode")
+	workers.StartBaselineRefresher(store)
+	workers.StartIncidentTracker(store)
+	workers.StartProbeResultCleaner(store)
+
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+
+	<-ctx.Done()
+	log.Info().Msg("Worker shutdown requested")
 }

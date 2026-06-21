@@ -11,6 +11,8 @@ import (
 const baselineRefreshInterval = time.Hour
 
 func StartBaselineRefresher(store *storage.Storage) {
+	log.Info().Dur("interval", baselineRefreshInterval).Msg("Starting baseline refresher")
+
 	// Keep baselines warm in the background so request handlers can just read them
 	go func() {
 		refresh := func() {
