@@ -38,7 +38,7 @@ Manage mode reads and writes through the same storage layer used by the HTTP ser
 Probe-specific behavior:
 
 - new services are created with a default probe config based on `HomepageURL`
-- the form can edit probe URL, method, interval, timeout, expected status, and enabled state
+- the form can edit probe URL, method, timeout, expected status, and enabled state
 - the list view shows whether the current service has probes enabled, disabled, or missing
 
 ## Files to check when behavior changes
