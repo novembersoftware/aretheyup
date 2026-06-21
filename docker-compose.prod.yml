@@ -26,6 +26,12 @@ services:
     profiles: ["probe", "app"]
     command: ["probe"]
 
+  worker:
+    <<: *app
+    container_name: aretheyup-worker
+    profiles: ["worker", "app"]
+    command: ["worker"]
+
   postgres:
     image: postgres:16-alpine
     container_name: aretheyup-postgres

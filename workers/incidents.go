@@ -13,6 +13,8 @@ import (
 const incidentRefreshInterval = time.Minute
 
 func StartIncidentTracker(store *storage.Storage) {
+	log.Info().Dur("interval", incidentRefreshInterval).Msg("Starting incident tracker")
+
 	// This loop turns status transitions into open and close incident records
 	go func() {
 		reconcile := func() {

@@ -137,7 +137,7 @@ Recent probe inputs are produced by the separate `probe` runtime mode.
 - `workers/probe.go` claims due enabled probe configs for active services
 - each run writes one `probe_results` row with status code, latency, and normalized failure type
 - request-time probe summaries read the latest rows through `storage.GetRecentProbeStats` and `storage.GetProbeServiceDetail`
-- raw probe history is retained for 30 days before cleanup
+- raw probe history is retained for 30 days before worker-mode cleanup
 
 Failure-type normalization is implemented in `workers/probe_failure.go` and `structs/probe_failure.go`.
 
