@@ -4,17 +4,19 @@
 
 The checked-in production deployment path is `docker-compose.prod.yml`.
 
-It defines four services behind explicit Docker Compose profiles:
+It defines app and dependency services behind explicit Docker Compose profiles:
 
 - `api` profile: starts the public HTTP server on `API_PORT`
 - `probe` profile: starts the synthetic probe worker
-- `app` profile: starts both `api` and `probe`
+- `worker` profile: starts recurring database jobs
+- `app` profile: starts `api`, `probe`, and `worker`
 - `deps` profile: starts PostgreSQL 16 and Redis 7
 
-The `api` and `probe` services use the same image built from `Dockerfile`, but each has an explicit runtime command:
+The `api`, `probe`, and `worker` services use the same image built from `Dockerfile`, but each has an explicit runtime command:
 
 - `api` runs `command: ["api"]`
 - `probe` runs `command: ["probe"]`
+- `worker` runs `command: ["worker"]`
 
 That split is implemented in `main.go`, `utils/parse-flags.go`, and `docker-compose.prod.yml`.
 
@@ -61,7 +63,15 @@ Use this when PostgreSQL and Redis are already reachable, either from managed se
 docker compose -f docker-compose.prod.yml --profile probe up -d --build
 ```
 
-### Start both app processes together
+### Start only the database worker
+
+Use this when PostgreSQL and Redis are already reachable, either from managed services or from a separately started `deps` profile. Keep a single worker active unless recurring jobs are protected with advisory locks.
+
+```bash
+docker compose -f docker-compose.prod.yml --profile worker up -d --build
+```
+
+### Start all app processes together
 
 ```bash
 docker compose -f docker-compose.prod.yml --profile app up -d --build
@@ -92,10 +102,11 @@ Each app container, whether started alone or through `app`:
 
 After that, the runtimes diverge:
 
-- `api` starts the baseline refresher, incident tracker, and Gin server
-- `probe` starts the synthetic probe worker loop and raw probe cleanup loop; due checks run on the global 5-minute service cadence
+- `api` starts only the Gin server
+- `probe` starts only the synthetic probe worker loop; due checks run on the global 5-minute service cadence
+- `worker` starts baseline refresh, incident reconciliation, and raw probe cleanup loops
 
-This behavior is implemented in `main.go`, `services/db.go`, `services/redis.go`, `storage/probes.go`, `workers/baseline.go`, `workers/incidents.go`, and `workers/probe.go`.
+This behavior is implemented in `main.go`, `services/db.go`, `services/redis.go`, `storage/probes.go`, `workers/baseline.go`, `workers/incidents.go`, `workers/probe.go`, and `workers/cleanup.go`.
 
 ## Verify the deployment
 
@@ -104,6 +115,7 @@ After startup, verify:
 - `GET /` returns the public index page from the `api` container
 - `GET /robots.txt` and `GET /sitemap.xml` reflect the intended `SITE_BASE_URL`
 - the `probe` container remains running when the `probe` or `app` profile is active
+- exactly one `worker` container remains running when recurring database jobs are enabled
 - enabled services begin accumulating fresh `probe_results`
 
 Useful commands:
@@ -111,9 +123,10 @@ Useful commands:
 ```bash
 docker compose -f docker-compose.prod.yml logs api --tail=100
 docker compose -f docker-compose.prod.yml logs probe --tail=100
+docker compose -f docker-compose.prod.yml logs worker --tail=100
 ```
 
-The probe worker should log work for due enabled probe configs. If you intend to serve probe-backed status data, the API process should not be the only app container running.
+The probe worker should log work for due enabled probe configs. The worker should log baseline, incident, and probe-result cleanup startup. If you intend to serve probe-backed status data, the API process should not be the only app container running.
 
 ## Updates and shutdown
 
@@ -129,7 +142,7 @@ To stop the stack:
 docker compose -f docker-compose.prod.yml down
 ```
 
-Use `down` without `-v` if you want to preserve the checked-in Postgres and Redis volumes. If you started only one profile, you can stop just that service with `docker compose -f docker-compose.prod.yml stop api` or `stop probe`.
+Use `down` without `-v` if you want to preserve the checked-in Postgres and Redis volumes. If you started only one profile, you can stop just that service with `docker compose -f docker-compose.prod.yml stop api`, `stop probe`, or `stop worker`.
 
 Relevant files:
 
@@ -143,5 +156,6 @@ Relevant files:
 - `workers/baseline.go`
 - `workers/incidents.go`
 - `workers/probe.go`
+- `workers/cleanup.go`
 - `api/routes/seo.go`
 - `utils/utils.go`

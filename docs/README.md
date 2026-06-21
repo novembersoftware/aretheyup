@@ -14,11 +14,12 @@ Internal maintainer docs for this repository.
 
 ## Project summary
 
-`aretheyup` is a Go application that serves public status pages and private same-site API endpoints backed by PostgreSQL and Redis. It also has a separate synthetic probe worker that writes probe data back into Postgres. The binary can run as:
+`aretheyup` is a Go application that serves public status pages and private same-site API endpoints backed by PostgreSQL and Redis. It also has separate synthetic probe and recurring database worker modes. The binary can run as:
 
 - the HTTP server (`api`, default)
 - the Bubble Tea admin TUI (`manage`)
 - the synthetic probe worker (`probe`)
+- the recurring database worker (`worker`)
 - a development seeder (`seed`)
 
 This behavior is wired in `main.go` and `utils/parse-flags.go`.
@@ -32,7 +33,7 @@ This docs baseline reflects the current `HEAD` state, including:
 - trusted proxy configuration for client IP handling
 - OG image and SEO route behavior
 - per-service synthetic probe configs with startup backfill from service homepages
-- a separate `probe` runtime mode that executes and retains raw probe results
+- separate `probe` and `worker` runtime modes for synthetic checks and recurring database jobs
 - probe detail data in service-card responses and templates
 
 Relevant files:
@@ -46,4 +47,7 @@ Relevant files:
 - `api/middleware/request-id.go`
 - `api/middleware/security-headers.go`
 - `storage/probes.go`
+- `workers/baseline.go`
+- `workers/incidents.go`
 - `workers/probe.go`
+- `workers/cleanup.go`

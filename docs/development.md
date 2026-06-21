@@ -7,6 +7,7 @@ go test ./...
 go vet ./...
 go run main.go
 go run main.go probe
+go run main.go worker
 go run main.go manage
 go run main.go seed --count 25 --clear
 ```
@@ -17,9 +18,10 @@ CI runs `go test ./...` and `go vet ./...` in `.github/workflows/ci.yml`.
 
 1. Start Postgres and Redis with `docker-compose.dev.yml`.
 2. Run `go run main.go`.
-3. Run `go run main.go probe` in another terminal when you want live synthetic checks instead of only seeded probe history.
-4. Use `go run main.go seed --count 25 --clear` when you need a realistic local dataset.
-5. Use `go run main.go manage` to create, edit, or delete services and probe configuration.
+3. Run `go run main.go worker` in another terminal when you want baseline refresh, incident reconciliation, and cleanup jobs.
+4. Run `go run main.go probe` in another terminal when you want live synthetic checks instead of only seeded probe history.
+5. Use `go run main.go seed --count 25 --clear` when you need a realistic local dataset.
+6. Use `go run main.go manage` to create, edit, or delete services and probe configuration.
 
 ## Admin TUI behavior
 
@@ -58,7 +60,7 @@ Existing tests already cover several security-sensitive paths:
 - same-site origin enforcement in `api/middleware/origin_test.go`
 - request IDs, security headers, and rate limiting in the corresponding middleware test files
 - algorithm behavior in `algorithm/status_test.go`
-- probe execution, cleanup, and failure classification in `workers/probe_test.go` and `workers/incidents_test.go`
+- probe execution, cleanup, and failure classification in `workers/probe_test.go` and incident behavior in `workers/incidents_test.go`
 - probe storage and presentation helpers in `storage/probes_test.go` and `utils/probes_test.go`
 
 When changing request policy, keep those tests aligned with the intended browser behavior.

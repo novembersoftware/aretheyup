@@ -9,11 +9,12 @@ Core runtime flow:
 1. `main.go` loads config and logging, then connects to Postgres and Redis.
 2. `services/MigrateDB` applies schema changes with GORM `AutoMigrate`.
 3. `storage.BackfillMissingProbeConfigs` ensures every existing service has a default probe config derived from its `HomepageURL`.
-4. API mode starts two background loops before booting Gin:
+4. API mode boots Gin for HTML pages, HTMX fragments, and JSON responses.
+5. Worker mode starts recurring database loops:
    - baseline refresh every hour
    - incident reconciliation every minute
-5. Probe mode runs a separate synthetic worker loop that claims due probe configs and writes `probe_results`.
-6. Gin serves HTML pages, HTMX fragments, and JSON responses.
+   - raw probe result cleanup every hour
+6. Probe mode runs a separate synthetic worker loop that claims due probe configs and writes `probe_results`.
 
 ## HTTP surface
 
@@ -61,11 +62,15 @@ The API uses the same algorithm path for both list and detail responses through 
 
 ### Baseline refresher
 
-`workers/baseline.go` refreshes all service baselines immediately at startup and then every hour. This keeps the hour-of-week baseline table warm for request handlers.
+`workers/baseline.go` runs only in `worker` mode. It refreshes all service baselines immediately at startup and then every hour. This keeps the hour-of-week baseline table warm for request handlers.
 
 ### Incident tracker
 
-`workers/incidents.go` recalculates current service state once per minute and opens or resolves incidents based on transitions into and out of `Outage`. Probe-only `Degraded` states are visible in the UI but do not create incident records.
+`workers/incidents.go` runs only in `worker` mode. It recalculates current service state once per minute and opens or resolves incidents based on transitions into and out of `Outage`. Probe-only `Degraded` states are visible in the UI but do not create incident records.
+
+### Probe result cleaner
+
+`workers/cleanup.go` runs only in `worker` mode. It deletes raw probe rows older than 30 days immediately at startup and then once per hour.
 
 ### Synthetic probe worker
 
@@ -76,7 +81,6 @@ The API uses the same algorithm path for both list and detail responses through 
 - leases configs in batches of 16 using `FOR UPDATE SKIP LOCKED`
 - executes HTTP requests with normalized method, timeout, and expected status handling
 - records typed failure reasons such as `timeout`, `dns`, `connect`, `tls`, and `http_status`
-- deletes raw probe rows older than 30 days once per hour
 
 Probe configs are stored per service in `probe_configs`. New services get a default config from `HomepageURL`, and startup backfill applies the same default to older rows that predate the probe feature. New and backfilled configs get deterministic initial jitter across the 5-minute cadence window, and recurring schedules advance from the stored `next_run_at` phase so probe worker restarts do not collapse every service onto the same due time. The legacy `interval_seconds` column is retained for compatibility but is not used for scheduling.
 
@@ -108,6 +112,7 @@ Relevant files:
 - `workers/baseline.go`
 - `workers/incidents.go`
 - `workers/probe.go`
+- `workers/cleanup.go`
 - `storage/storage.go`
 - `storage/probes.go`
 - `storage/service-detail.go`

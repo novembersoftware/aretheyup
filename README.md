@@ -25,7 +25,7 @@ The result is a clear status for each service:
 - SEO-friendly status pages (`/`, `/:slug`)
 - Fast, server-rendered UI with HTMX
 - Report endpoint with abuse protection via rate limiting
-- Background workers for baseline refresh and incident tracking
+- Separate API, probe, and background worker runtime modes
 - Service management TUI for admins (`manage` mode)
 
 ## Tech stack
@@ -78,6 +78,12 @@ go run main.go api
 
 # Manage mode (service admin TUI)
 go run main.go manage
+
+# Probe mode (synthetic checks)
+go run main.go probe
+
+# Worker mode (baseline refresh, incidents, cleanup)
+go run main.go worker
 
 # Seed mode
 go run main.go seed --count 25 --clear
