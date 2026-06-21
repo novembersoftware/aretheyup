@@ -381,8 +381,12 @@ func TestRunProbeWorkerReturnsOnCanceledContext(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 
-	err := runProbeWorker(ctx, &fakeProbeStore{}, fakeProbeExecutor{})
+	store := &fakeProbeStore{}
+	err := runProbeWorker(ctx, store, fakeProbeExecutor{})
 	if err != nil && !errors.Is(err, context.Canceled) {
 		t.Fatalf("runProbeWorker() error = %v, want nil or context.Canceled", err)
+	}
+	if len(store.deleteCutoffs) != 0 {
+		t.Fatalf("runProbeWorker() cleaned old probe results %d times, want 0", len(store.deleteCutoffs))
 	}
 }

@@ -14,18 +14,15 @@ import (
 )
 
 const (
-	probeSweepInterval   = 5 * time.Second
-	probeCleanupInterval = time.Hour
-	probeRawRetention    = 30 * 24 * time.Hour
-	probeClaimBatchSize  = 16
-	probeRegionGlobal    = "global"
-	probeUserAgent       = "aretheyup-probe/1.0"
+	probeSweepInterval  = 5 * time.Second
+	probeClaimBatchSize = 16
+	probeRegionGlobal   = "global"
+	probeUserAgent      = "aretheyup-probe/1.0"
 )
 
 type probeStore interface {
 	ClaimDueProbeConfigs(ctx context.Context, now time.Time, limit int) ([]structs.ProbeConfig, error)
 	CompleteProbeLease(ctx context.Context, configID uint, leaseToken string, result structs.ProbeResult, checkedAt time.Time) error
-	DeleteProbeResultsOlderThan(ctx context.Context, cutoff time.Time) (int64, error)
 }
 
 type probeExecutor interface {
@@ -43,15 +40,8 @@ func RunProbeWorker(store *storage.Storage) error {
 }
 
 func runProbeWorker(ctx context.Context, store probeStore, executor probeExecutor) error {
-	if err := cleanupOldProbeResults(ctx, store, time.Now().UTC()); err != nil {
-		log.Error().Err(err).Msg("Failed to clean old probe results")
-	}
-
 	sweepTicker := time.NewTicker(probeSweepInterval)
 	defer sweepTicker.Stop()
-
-	cleanupTicker := time.NewTicker(probeCleanupInterval)
-	defer cleanupTicker.Stop()
 
 	if err := runProbeSweep(ctx, store, executor, time.Now().UTC()); err != nil {
 		log.Error().Err(err).Msg("Probe sweep failed")
@@ -67,10 +57,6 @@ func runProbeWorker(ctx context.Context, store probeStore, executor probeExecuto
 		case <-sweepTicker.C:
 			if err := runProbeSweep(ctx, store, executor, time.Now().UTC()); err != nil {
 				log.Error().Err(err).Msg("Probe sweep failed")
-			}
-		case <-cleanupTicker.C:
-			if err := cleanupOldProbeResults(ctx, store, time.Now().UTC()); err != nil {
-				log.Error().Err(err).Msg("Failed to clean old probe results")
 			}
 		}
 	}
@@ -126,19 +112,6 @@ func executeClaimedProbe(ctx context.Context, executor probeExecutor, cfg struct
 	defer cancel()
 
 	return executor.Execute(execCtx, cfg)
-}
-
-func cleanupOldProbeResults(ctx context.Context, store probeStore, now time.Time) error {
-	cutoff := now.Add(-probeRawRetention)
-	deleted, err := store.DeleteProbeResultsOlderThan(ctx, cutoff)
-	if err != nil {
-		return err
-	}
-	if deleted > 0 {
-		log.Info().Int64("deleted", deleted).Time("cutoff", cutoff).Msg("Deleted expired probe results")
-	}
-
-	return nil
 }
 
 func (e *httpProbeExecutor) Execute(ctx context.Context, cfg structs.ProbeConfig) (structs.ProbeResult, error) {
