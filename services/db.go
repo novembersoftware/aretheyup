@@ -139,7 +139,7 @@ func buildSeedProbeData(
 	incidents []structs.Incident,
 ) (structs.ProbeConfig, []structs.ProbeResult) {
 	const (
-		intervalSeconds = 15 * 60
+		intervalSeconds = 5 * 60
 		timeoutSeconds  = 10
 		expectedStatus  = 200
 	)
@@ -227,7 +227,7 @@ func buildSeedProbeData(
 		IntervalSeconds: intervalSeconds,
 		TimeoutSeconds:  timeoutSeconds,
 		ExpectedStatus:  expectedStatus,
-		NextRunAt:       now.UTC(),
+		NextRunAt:       now.UTC().Add(time.Duration(r.Intn(intervalSeconds)) * time.Second),
 		LastCheckedAt:   timePtr(lastCheckedAt),
 		LastSuccessAt:   lastSuccessAt,
 	}
