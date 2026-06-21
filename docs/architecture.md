@@ -72,12 +72,13 @@ The API uses the same algorithm path for both list and detail responses through 
 `workers/probe.go` runs only in `probe` mode. It:
 
 - wakes every 5 seconds to claim due probe configs for active services
+- schedules each service on the global 5-minute cadence stored in `next_run_at`
 - leases configs in batches of 16 using `FOR UPDATE SKIP LOCKED`
 - executes HTTP requests with normalized method, timeout, and expected status handling
 - records typed failure reasons such as `timeout`, `dns`, `connect`, `tls`, and `http_status`
 - deletes raw probe rows older than 30 days once per hour
 
-Probe configs are stored per service in `probe_configs`. New services get a default config from `HomepageURL`, and startup backfill applies the same default to older rows that predate the probe feature.
+Probe configs are stored per service in `probe_configs`. New services get a default config from `HomepageURL`, and startup backfill applies the same default to older rows that predate the probe feature. New and backfilled configs get deterministic initial jitter across the 5-minute cadence window, and recurring schedules advance from the stored `next_run_at` phase so probe worker restarts do not collapse every service onto the same due time. The legacy `interval_seconds` column is retained for compatibility but is not used for scheduling.
 
 ## Storage and data model
 

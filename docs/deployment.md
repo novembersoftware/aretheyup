@@ -88,12 +88,12 @@ Each app container, whether started alone or through `app`:
 - loads configuration
 - opens PostgreSQL and Redis
 - runs GORM migrations
-- backfills any missing default probe configs from service `HomepageURL`
+- backfills any missing default probe configs from service `HomepageURL` with jittered initial probe times
 
 After that, the runtimes diverge:
 
 - `api` starts the baseline refresher, incident tracker, and Gin server
-- `probe` starts the synthetic probe worker loop and raw probe cleanup loop
+- `probe` starts the synthetic probe worker loop and raw probe cleanup loop; due checks run on the global 5-minute service cadence
 
 This behavior is implemented in `main.go`, `services/db.go`, `services/redis.go`, `storage/probes.go`, `workers/baseline.go`, `workers/incidents.go`, and `workers/probe.go`.
 

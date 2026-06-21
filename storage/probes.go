@@ -3,8 +3,10 @@ package storage
 import (
 	"context"
 	"crypto/rand"
+	"encoding/binary"
 	"encoding/hex"
 	"errors"
+	"hash/fnv"
 	"strings"
 	"time"
 
@@ -16,6 +18,10 @@ import (
 const (
 	defaultProbeClaimBatchSize = 16
 	minProbeLeaseDuration      = time.Minute
+	// GlobalProbeInterval is the product-wide cadence for enabled probes.
+	GlobalProbeInterval = 5 * time.Minute
+	// GlobalProbeIntervalSeconds is kept for the legacy interval_seconds column.
+	GlobalProbeIntervalSeconds = int(GlobalProbeInterval / time.Second)
 )
 
 var errProbeLeaseNotFound = errors.New("probe lease not found")
@@ -44,10 +50,10 @@ func DefaultProbeConfig(serviceID uint, homepageURL string, now time.Time) struc
 		Enabled:         true,
 		URL:             strings.TrimSpace(homepageURL),
 		Method:          "GET",
-		IntervalSeconds: 60,
+		IntervalSeconds: GlobalProbeIntervalSeconds,
 		TimeoutSeconds:  10,
 		ExpectedStatus:  200,
-		NextRunAt:       now.UTC(),
+		NextRunAt:       initialProbeRunAt(serviceID, now),
 	}
 }
 
@@ -129,7 +135,7 @@ func (s *Storage) ClaimDueProbeConfigs(ctx context.Context, now time.Time, limit
 			}
 
 			leaseExpiresAt := now.Add(probeLeaseDuration(configs[i].TimeoutSeconds))
-			nextRunAt := nextProbeRunAt(configs[i].NextRunAt, now, configs[i].IntervalSeconds)
+			nextRunAt := nextProbeRunAt(configs[i].NextRunAt, now, configs[i].ServiceID)
 			if err := tx.Model(&structs.ProbeConfig{}).
 				Where("id = ?", configs[i].ID).
 				Updates(map[string]any{
@@ -257,16 +263,36 @@ func (s *Storage) GetProbeServiceDetail(ctx context.Context, serviceID uint, lim
 	return detail, nil
 }
 
-func nextProbeRunAt(currentNextRunAt, now time.Time, intervalSeconds int) time.Time {
-	if intervalSeconds <= 0 {
-		intervalSeconds = 60
+func nextProbeRunAt(currentNextRunAt, now time.Time, serviceID uint) time.Time {
+	now = now.UTC()
+	if currentNextRunAt.IsZero() {
+		return now.Add(GlobalProbeInterval + probeJitterForService(serviceID)).UTC()
 	}
 
+	currentNextRunAt = currentNextRunAt.UTC()
 	if currentNextRunAt.After(now) {
-		return currentNextRunAt.UTC()
+		return currentNextRunAt
 	}
 
-	return now.Add(time.Duration(intervalSeconds) * time.Second).UTC()
+	missedIntervals := now.Sub(currentNextRunAt)/GlobalProbeInterval + 1
+	return currentNextRunAt.Add(missedIntervals * GlobalProbeInterval).UTC()
+}
+
+func initialProbeRunAt(serviceID uint, now time.Time) time.Time {
+	return now.UTC().Add(probeJitterForService(serviceID)).UTC()
+}
+
+func probeJitterForService(serviceID uint) time.Duration {
+	// Hash the stable service ID into a deterministic offset so config backfills
+	// spread across the cadence window without changing phase on worker restart.
+	var buf [8]byte
+	binary.LittleEndian.PutUint64(buf[:], uint64(serviceID))
+
+	hash := fnv.New64a()
+	_, _ = hash.Write(buf[:])
+
+	slots := uint64(GlobalProbeInterval / time.Second)
+	return time.Duration(hash.Sum64()%slots) * time.Second
 }
 
 func shouldClaimProbeConfig(cfg structs.ProbeConfig, now time.Time) bool {

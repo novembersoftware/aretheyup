@@ -83,7 +83,7 @@ type ProbeConfig struct {
 	Enabled         bool      `gorm:"not null;default:true"`
 	URL             string    `gorm:"not null"`
 	Method          string    `gorm:"not null;default:'GET'"`
-	IntervalSeconds int       `gorm:"not null;default:60"`
+	IntervalSeconds int       `gorm:"not null;default:300"`
 	TimeoutSeconds  int       `gorm:"not null;default:10"`
 	ExpectedStatus  int       `gorm:"not null;default:200"` // which code = healthy
 	NextRunAt       time.Time `gorm:"index"`

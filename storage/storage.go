@@ -238,8 +238,12 @@ func (s *Storage) GetProbeConfig(ctx context.Context, serviceID uint) (*structs.
 // UpsertProbeConfig creates or updates the probe config for a service.
 func (s *Storage) UpsertProbeConfig(ctx context.Context, pc *structs.ProbeConfig) error {
 	if pc.ID == 0 {
+		now := time.Now().UTC()
+		if pc.IntervalSeconds <= 0 {
+			pc.IntervalSeconds = GlobalProbeIntervalSeconds
+		}
 		if pc.NextRunAt.IsZero() {
-			pc.NextRunAt = time.Now().UTC()
+			pc.NextRunAt = initialProbeRunAt(pc.ServiceID, now)
 		}
 		return s.db.WithContext(ctx).Clauses(clause.OnConflict{
 			Columns: []clause.Column{{Name: "service_id"}},
@@ -250,7 +254,7 @@ func (s *Storage) UpsertProbeConfig(ctx context.Context, pc *structs.ProbeConfig
 				"interval_seconds": pc.IntervalSeconds,
 				"timeout_seconds":  pc.TimeoutSeconds,
 				"expected_status":  pc.ExpectedStatus,
-				"updated_at":       time.Now().UTC(),
+				"updated_at":       now,
 			}),
 		}).Create(pc).Error
 	}

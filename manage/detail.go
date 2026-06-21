@@ -5,6 +5,7 @@ import (
 	"strings"
 
 	"github.com/charmbracelet/lipgloss"
+	"github.com/novembersoftware/aretheyup/storage"
 	"github.com/novembersoftware/aretheyup/structs"
 )
 
@@ -83,7 +84,7 @@ func (m detailModel) view(status string, statusErr bool) string {
 		panel.WriteString(detailLabelStyle().Render("Status") + "  " + enabledStr + "\n")
 		panel.WriteString(detailField("URL", pc.URL))
 		panel.WriteString(detailField("Method", pc.Method))
-		panel.WriteString(detailField("Interval", fmt.Sprintf("%ds", pc.IntervalSeconds)))
+		panel.WriteString(detailField("Cadence", storage.GlobalProbeInterval.String()))
 		panel.WriteString(detailField("Timeout", fmt.Sprintf("%ds", pc.TimeoutSeconds)))
 		panel.WriteString(detailField("Expected", fmt.Sprintf("HTTP %d", pc.ExpectedStatus)))
 		panel.WriteString("\n")

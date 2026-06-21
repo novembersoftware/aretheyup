@@ -27,7 +27,7 @@ docker compose -f docker-compose.dev.yml up -d
 go run main.go
 ```
 
-The process loads `.env.local`, opens PostgreSQL and Redis, runs GORM migrations, backfills any missing default probe configs from existing service homepages, starts the baseline and incident workers, then serves HTTP on `API_PORT`. This startup path is implemented in `main.go`, `services/db.go`, `services/redis.go`, `storage/probes.go`, and `api/server.go`.
+The process loads `.env.local`, opens PostgreSQL and Redis, runs GORM migrations, backfills any missing default probe configs from existing service homepages with jittered initial probe times, starts the baseline and incident workers, then serves HTTP on `API_PORT`. This startup path is implemented in `main.go`, `services/db.go`, `services/redis.go`, `storage/probes.go`, and `api/server.go`.
 
 4. In a second terminal, start the probe worker if you want live synthetic probe data:
 
@@ -62,7 +62,7 @@ Opens the Bubble Tea service-management UI. Implemented in `manage/tui.go`.
 go run main.go probe
 ```
 
-Runs the synthetic probe loop that claims due probe configs, executes HTTP checks, writes `probe_results`, and cleans up raw probe history older than 30 days. Implemented in `main.go`, `workers/probe.go`, and `storage/probes.go`.
+Runs the synthetic probe loop that claims due probe configs on the global 5-minute service cadence, executes HTTP checks, writes `probe_results`, and cleans up raw probe history older than 30 days. Implemented in `main.go`, `workers/probe.go`, and `storage/probes.go`.
 
 ### Seeder
 
