@@ -14,6 +14,34 @@ import (
 	"gorm.io/gorm/logger"
 )
 
+type hotStatusIndex struct {
+	name      string
+	statement string
+}
+
+var hotStatusIndexes = []hotStatusIndex{
+	{
+		name:      "idx_probe_results_service_created_desc",
+		statement: "CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_probe_results_service_created_desc ON probe_results (service_id, created_at DESC)",
+	},
+	{
+		name:      "idx_probe_results_service_failed_created_desc",
+		statement: "CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_probe_results_service_failed_created_desc ON probe_results (service_id, created_at DESC) WHERE success = false",
+	},
+	{
+		name:      "idx_probe_results_created_at",
+		statement: "CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_probe_results_created_at ON probe_results (created_at)",
+	},
+	{
+		name:      "idx_user_reports_service_created_desc",
+		statement: "CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_user_reports_service_created_desc ON user_reports (service_id, created_at DESC)",
+	},
+	{
+		name:      "idx_incidents_active_by_service",
+		statement: "CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_incidents_active_by_service ON incidents (service_id) WHERE resolved_at IS NULL",
+	},
+}
+
 // NewDB opens a GORM connection to Postgres using the provided DSN and returns it
 func NewDB(dsn string) (*gorm.DB, error) {
 	db, err := gorm.Open(postgres.Open(dsn), &gorm.Config{
@@ -41,7 +69,20 @@ func MigrateDB(db *gorm.DB) error {
 	if err != nil {
 		return err
 	}
+	if err := ensureHotStatusIndexes(db); err != nil {
+		return err
+	}
 	log.Info().Msg("Database migrated")
+	return nil
+}
+
+func ensureHotStatusIndexes(db *gorm.DB) error {
+	session := db.Session(&gorm.Session{SkipDefaultTransaction: true})
+	for _, index := range hotStatusIndexes {
+		if err := session.Exec(index.statement).Error; err != nil {
+			return fmt.Errorf("create hot status index %s: %w", index.name, err)
+		}
+	}
 	return nil
 }
 
