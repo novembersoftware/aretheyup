@@ -9,6 +9,7 @@ import (
 	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
+	"github.com/novembersoftware/aretheyup/storage"
 	"github.com/novembersoftware/aretheyup/structs"
 )
 
@@ -23,7 +24,7 @@ const (
 // Number of text inputs in each section
 const (
 	svcInputCount   = 5 // Name, Slug, Description, Category, Homepage
-	probeInputCount = 5 // URL, Method, Interval, Timeout, Expected
+	probeInputCount = 4 // URL, Method, Timeout, Expected
 )
 
 // Absolute focus positions
@@ -42,7 +43,7 @@ type formModel struct {
 	// Probe section
 	probeExistingID  uint              // non-zero → editing existing config; section always visible
 	showProbeSection bool              // toggled by gate when probeExistingID == 0
-	probeInputs      []textinput.Model // URL, Method, Interval, Timeout, Expected
+	probeInputs      []textinput.Model // URL, Method, Timeout, Expected
 	probeEnabled     bool
 
 	focused    int
@@ -120,12 +121,10 @@ func newFormModel(svc *structs.Service, pc *structs.ProbeConfig) formModel {
 	probeInputs[0].CharLimit = 255
 	probeInputs[1].Placeholder = "GET"
 	probeInputs[1].CharLimit = 10
-	probeInputs[2].Placeholder = "60"
+	probeInputs[2].Placeholder = "10"
 	probeInputs[2].CharLimit = 6
-	probeInputs[3].Placeholder = "10"
-	probeInputs[3].CharLimit = 6
-	probeInputs[4].Placeholder = "200"
-	probeInputs[4].CharLimit = 5
+	probeInputs[3].Placeholder = "200"
+	probeInputs[3].CharLimit = 5
 
 	probeEnabled := true
 	var probeExistingID uint
@@ -136,16 +135,14 @@ func newFormModel(svc *structs.Service, pc *structs.ProbeConfig) formModel {
 		showProbeSection = true
 		probeInputs[0].SetValue(pc.URL)
 		probeInputs[1].SetValue(pc.Method)
-		probeInputs[2].SetValue(fmt.Sprintf("%d", pc.IntervalSeconds))
-		probeInputs[3].SetValue(fmt.Sprintf("%d", pc.TimeoutSeconds))
-		probeInputs[4].SetValue(fmt.Sprintf("%d", pc.ExpectedStatus))
+		probeInputs[2].SetValue(fmt.Sprintf("%d", pc.TimeoutSeconds))
+		probeInputs[3].SetValue(fmt.Sprintf("%d", pc.ExpectedStatus))
 		probeEnabled = pc.Enabled
 	} else {
 		// Sensible defaults for new probe config
 		probeInputs[1].SetValue("GET")
-		probeInputs[2].SetValue("60")
-		probeInputs[3].SetValue("10")
-		probeInputs[4].SetValue("200")
+		probeInputs[2].SetValue("10")
+		probeInputs[3].SetValue("200")
 	}
 
 	return formModel{
@@ -276,12 +273,8 @@ func (m formModel) toProbeConfig() *structs.ProbeConfig {
 	if !m.showProbeSection && m.probeExistingID == 0 {
 		return nil
 	}
-	interval, _ := strconv.Atoi(strings.TrimSpace(m.probeInputs[2].Value()))
-	timeout, _ := strconv.Atoi(strings.TrimSpace(m.probeInputs[3].Value()))
-	expected, _ := strconv.Atoi(strings.TrimSpace(m.probeInputs[4].Value()))
-	if interval <= 0 {
-		interval = 60
-	}
+	timeout, _ := strconv.Atoi(strings.TrimSpace(m.probeInputs[2].Value()))
+	expected, _ := strconv.Atoi(strings.TrimSpace(m.probeInputs[3].Value()))
 	if timeout <= 0 {
 		timeout = 10
 	}
@@ -294,7 +287,7 @@ func (m formModel) toProbeConfig() *structs.ProbeConfig {
 		Enabled:         m.probeEnabled,
 		URL:             strings.TrimSpace(m.probeInputs[0].Value()),
 		Method:          strings.TrimSpace(m.probeInputs[1].Value()),
-		IntervalSeconds: interval,
+		IntervalSeconds: storage.GlobalProbeIntervalSeconds,
 		TimeoutSeconds:  timeout,
 		ExpectedStatus:  expected,
 	}
@@ -397,7 +390,6 @@ func (m formModel) renderProbeSection() string {
 	probeFields := []struct{ label, hint string }{
 		{"URL", "endpoint to probe"},
 		{"Method", "HTTP method: GET, POST, HEAD, …"},
-		{"Interval (seconds)", "how often to probe"},
 		{"Timeout (seconds)", "request timeout"},
 		{"Expected Status", "HTTP status considered healthy"},
 	}
