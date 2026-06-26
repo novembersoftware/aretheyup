@@ -35,6 +35,10 @@ func TestHotStatusIndexes(t *testing.T) {
 			name:      "idx_incidents_active_by_service",
 			statement: "CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_incidents_active_by_service ON incidents (service_id) WHERE resolved_at IS NULL",
 		},
+		{
+			name:      "idx_service_statuses_recent_reports",
+			statement: "CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_service_statuses_recent_reports ON service_statuses (recent_reports DESC, service_id)",
+		},
 	}
 
 	if len(hotStatusIndexes) != len(expected) {

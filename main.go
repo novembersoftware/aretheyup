@@ -116,6 +116,7 @@ func backfillProbeRollupsMode(store *storage.Storage) {
 func workerMode(store *storage.Storage) {
 	log.Info().Msg("Starting worker mode")
 	workers.StartBaselineRefresher(store)
+	workers.StartStatusRefresher(store)
 	workers.StartIncidentTracker(store)
 	workers.StartProbeResultCleaner(store)
 

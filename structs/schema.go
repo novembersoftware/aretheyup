@@ -59,6 +59,23 @@ type ServiceBaseline struct {
 	UpdatedAt            time.Time
 }
 
+type ServiceStatus struct {
+	ServiceID                uint      `gorm:"primaryKey"`
+	Status                   string    `gorm:"not null;index"`
+	RecentReports            int64     `gorm:"not null;default:0"`
+	RecentProbeTotal         int64     `gorm:"not null;default:0"`
+	RecentProbeFailures      int64     `gorm:"not null;default:0"`
+	BaselineMeanReports      float64   `gorm:"not null;default:0"`
+	BaselineStdDevReports    float64   `gorm:"not null;default:0"`
+	BaselineSampleCount      int       `gorm:"not null;default:0"`
+	ProbeBaselineFailureRate float64   `gorm:"not null;default:0"`
+	ProbeBaselineSamples     int       `gorm:"not null;default:0"`
+	HourOfWeek               int       `gorm:"not null;default:0"`
+	ComputedAt               time.Time `gorm:"not null;index"`
+	CreatedAt                time.Time
+	UpdatedAt                time.Time
+}
+
 type UserReport struct {
 	ID          uint   `gorm:"primaryKey"`
 	ServiceID   uint   `gorm:"not null;index"`

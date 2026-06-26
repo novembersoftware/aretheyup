@@ -4,7 +4,6 @@ import (
 	"context"
 	"time"
 
-	"github.com/novembersoftware/aretheyup/algorithm"
 	"github.com/novembersoftware/aretheyup/structs"
 	r "github.com/redis/go-redis/v9"
 	"gorm.io/gorm"
@@ -35,6 +34,8 @@ type ServiceRow struct {
 	HomepageURL       string
 	Category          string
 	RecentReportCount int64
+	Status            string
+	ComputedAt        time.Time
 }
 
 type SitemapServiceRow struct {
@@ -45,19 +46,18 @@ type SitemapServiceRow struct {
 // ListServices returns services ordered by recent report count (descending).
 func (s *Storage) ListServices(ctx context.Context, limit, offset int) ([]ServiceRow, error) {
 	var rows []ServiceRow
-	// Keep this in sync with the algorithm's report window.
-	reportWindowStart := time.Now().Add(-algorithm.ReportWindow)
 	result := s.db.WithContext(ctx).Raw(`
 		SELECT s.id, s.slug, s.name, s.homepage_url, s.category,
-		       COUNT(ur.id) AS recent_report_count
+		       COALESCE(ss.recent_reports, 0) AS recent_report_count,
+		       COALESCE(ss.status, 'Operational') AS status,
+		       ss.computed_at
 		FROM services s
-		LEFT JOIN user_reports ur ON ur.service_id = s.id AND ur.created_at > ?
+		LEFT JOIN service_statuses ss ON ss.service_id = s.id
 		WHERE s.active = true
-		GROUP BY s.id
-		ORDER BY recent_report_count DESC
+		ORDER BY recent_report_count DESC, s.name ASC
 		LIMIT ?
 		OFFSET ?
-	`, reportWindowStart, limit, offset).Scan(&rows)
+	`, limit, offset).Scan(&rows)
 	if result.Error != nil {
 		return rows, result.Error
 	}
@@ -69,18 +69,17 @@ func (s *Storage) ListServices(ctx context.Context, limit, offset int) ([]Servic
 // ordered by recent report count (descending)
 func (s *Storage) SearchServices(ctx context.Context, query string) ([]ServiceRow, error) {
 	var rows []ServiceRow
-	// Same window as list/detail status checks.
-	reportWindowStart := time.Now().Add(-algorithm.ReportWindow)
 	result := s.db.WithContext(ctx).Raw(`
 		SELECT s.id, s.slug, s.name, s.homepage_url, s.category,
-		       COUNT(ur.id) AS recent_report_count
+		       COALESCE(ss.recent_reports, 0) AS recent_report_count,
+		       COALESCE(ss.status, 'Operational') AS status,
+		       ss.computed_at
 		FROM services s
-		LEFT JOIN user_reports ur ON ur.service_id = s.id AND ur.created_at > ?
+		LEFT JOIN service_statuses ss ON ss.service_id = s.id
 		WHERE s.active = true AND LOWER(s.name) LIKE LOWER(?)
-		GROUP BY s.id
-		ORDER BY recent_report_count DESC
+		ORDER BY recent_report_count DESC, s.name ASC
 		LIMIT 48
-	`, reportWindowStart, "%"+query+"%").Scan(&rows)
+	`, "%"+query+"%").Scan(&rows)
 	return rows, result.Error
 }
 
