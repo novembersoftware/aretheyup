@@ -36,6 +36,14 @@ func TestHotStatusIndexes(t *testing.T) {
 			statement: "CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_probe_hourly_rollups_service_hour_bucket ON probe_hourly_rollups (service_id, hour_of_week, bucket_start)",
 		},
 		{
+			name:      "idx_service_statuses_recent_reports",
+			statement: "CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_service_statuses_recent_reports ON service_statuses (recent_reports DESC, service_id)",
+		},
+		{
+			name:      "idx_service_statuses_status_computed_at",
+			statement: "CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_service_statuses_status_computed_at ON service_statuses (status, computed_at DESC)",
+		},
+		{
 			name:      "idx_user_reports_service_created_desc",
 			statement: "CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_user_reports_service_created_desc ON user_reports (service_id, created_at DESC)",
 		},

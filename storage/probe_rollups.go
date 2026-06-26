@@ -2,14 +2,23 @@ package storage
 
 import (
 	"context"
+	"fmt"
 	"time"
 )
+
+type BackfillProbeHourlyRollupsResult struct {
+	RowsAffected int64
+	Chunks       int
+}
 
 func (s *Storage) BackfillProbeHourlyRollups(ctx context.Context, start, end time.Time) (int64, error) {
 	start = start.UTC()
 	end = end.UTC()
 	if !end.After(start) {
 		return 0, nil
+	}
+	if err := validateProbeRollupBackfillWindow(start, end); err != nil {
+		return 0, err
 	}
 
 	result := s.db.WithContext(ctx).Exec(`
@@ -69,4 +78,50 @@ func (s *Storage) BackfillProbeHourlyRollups(ctx context.Context, start, end tim
 	}
 
 	return result.RowsAffected, nil
+}
+
+func (s *Storage) BackfillProbeHourlyRollupsChunked(ctx context.Context, start, end time.Time, chunkDuration time.Duration) (BackfillProbeHourlyRollupsResult, error) {
+	start = start.UTC()
+	end = end.UTC()
+	if !end.After(start) {
+		return BackfillProbeHourlyRollupsResult{}, nil
+	}
+	if err := validateProbeRollupBackfillWindow(start, end); err != nil {
+		return BackfillProbeHourlyRollupsResult{}, err
+	}
+	if chunkDuration > 0 && chunkDuration < end.Sub(start) && chunkDuration%time.Hour != 0 {
+		return BackfillProbeHourlyRollupsResult{}, fmt.Errorf("probe rollup backfill chunk duration must be a whole-hour multiple")
+	}
+
+	if chunkDuration <= 0 || chunkDuration >= end.Sub(start) {
+		rows, err := s.BackfillProbeHourlyRollups(ctx, start, end)
+		if err != nil {
+			return BackfillProbeHourlyRollupsResult{}, err
+		}
+		return BackfillProbeHourlyRollupsResult{RowsAffected: rows, Chunks: 1}, nil
+	}
+
+	result := BackfillProbeHourlyRollupsResult{}
+	for chunkStart := start; chunkStart.Before(end); chunkStart = chunkStart.Add(chunkDuration) {
+		chunkEnd := chunkStart.Add(chunkDuration)
+		if chunkEnd.After(end) {
+			chunkEnd = end
+		}
+
+		rows, err := s.BackfillProbeHourlyRollups(ctx, chunkStart, chunkEnd)
+		if err != nil {
+			return result, err
+		}
+		result.RowsAffected += rows
+		result.Chunks++
+	}
+
+	return result, nil
+}
+
+func validateProbeRollupBackfillWindow(start, end time.Time) error {
+	if !start.Equal(start.Truncate(time.Hour)) || !end.Equal(end.Truncate(time.Hour)) {
+		return fmt.Errorf("probe rollup backfill start and end must be aligned to UTC hour boundaries")
+	}
+	return nil
 }

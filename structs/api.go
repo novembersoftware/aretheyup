@@ -1,14 +1,17 @@
 package structs
 
+import "time"
+
 type ServiceResponse struct {
-	ID            uint   `json:"id"`
-	Slug          string `json:"slug"`
-	Name          string `json:"name"`
-	URL           string `json:"url"`
-	IconURL       string `json:"icon_url"`
-	Category      string `json:"category"`
-	Status        string `json:"status"`
-	RecentReports int64  `json:"recent_reports"`
+	ID            uint      `json:"id"`
+	Slug          string    `json:"slug"`
+	Name          string    `json:"name"`
+	URL           string    `json:"url"`
+	IconURL       string    `json:"icon_url"`
+	Category      string    `json:"category"`
+	Status        string    `json:"status"`
+	RecentReports int64     `json:"recent_reports"`
+	ComputedAt    time.Time `json:"computed_at"`
 }
 
 type ServiceDetailResponse struct {
@@ -19,6 +22,8 @@ type ServiceDetailResponse struct {
 	IconURL               string                      `json:"icon_url"`
 	Category              string                      `json:"category"`
 	Status                string                      `json:"status"`
+	ComputedAt            time.Time                   `json:"computed_at"`
+	ComputedAtLabel       string                      `json:"computed_at_label"`
 	RecentReports         int64                       `json:"recent_reports"`
 	CanReport             bool                        `json:"can_report"`
 	ReportRetryAfterSec   int64                       `json:"report_retry_after_sec"`

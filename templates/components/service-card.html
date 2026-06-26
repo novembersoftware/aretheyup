@@ -11,6 +11,9 @@
 				<span class="text-xs font-medium px-2 py-0.5 rounded-md bg-error/20 text-error">Outage</span>
 				{{ end }}
 				<div class="flex items-center gap-3">
+					{{ if .service.ComputedAtLabel }}
+					<span class="hidden sm:inline text-xs text-base-content/45">Updated {{ .service.ComputedAtLabel }}</span>
+					{{ end }}
 					{{ if .service.CanReport }}
 					<button class="btn btn-sm sm:btn-md btn-soft" hx-post="/api/service/{{ .service.Slug }}/report"
 						hx-target="#service-card" hx-swap="innerHTML" hx-disabled-elt="this"

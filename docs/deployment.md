@@ -104,9 +104,11 @@ After that, the runtimes diverge:
 
 - `api` starts only the Gin server
 - `probe` starts only the synthetic probe worker loop; due checks run on the global 5-minute service cadence
-- `worker` starts baseline refresh, incident reconciliation, and raw probe cleanup loops
+- `worker` starts baseline refresh, status snapshot refresh, incident reconciliation, and, when enabled, raw probe cleanup loops
 
-This behavior is implemented in `main.go`, `services/db.go`, `services/redis.go`, `storage/probes.go`, `workers/baseline.go`, `workers/incidents.go`, `workers/probe.go`, and `workers/cleanup.go`.
+Raw probe cleanup is disabled unless `RAW_PROBE_RETENTION_CLEANUP_ENABLED=true`. Incident reconciliation uses legacy status calculation unless `STATUS_SNAPSHOT_INCIDENT_READS_ENABLED=true`. API status reads use legacy calculation unless `STATUS_SNAPSHOT_API_READS_ENABLED=true`.
+
+This behavior is implemented in `main.go`, `services/db.go`, `services/redis.go`, `storage/probes.go`, `storage/statuses.go`, `workers/baseline.go`, `workers/statuses.go`, `workers/incidents.go`, `workers/probe.go`, and `workers/cleanup.go`.
 
 ## Verify the deployment
 
@@ -126,7 +128,33 @@ docker compose -f docker-compose.prod.yml logs probe --tail=100
 docker compose -f docker-compose.prod.yml logs worker --tail=100
 ```
 
-The probe worker should log work for due enabled probe configs. The worker should log baseline, incident, and probe-result cleanup startup. If you intend to serve probe-backed status data, the API process should not be the only app container running.
+The probe worker should log work for due enabled probe configs. The worker should log baseline, status refresh, and incident startup. Probe-result cleanup startup appears only after `RAW_PROBE_RETENTION_CLEANUP_ENABLED=true`. If you intend to serve probe-backed status data, the API process should not be the only app container running.
+
+## Derived-table rollout
+
+Use this order when moving an existing deployment to the derived read model:
+
+1. Deploy the new version with `STATUS_SNAPSHOT_API_READS_ENABLED=false`, `STATUS_SNAPSHOT_INCIDENT_READS_ENABLED=false`, and `RAW_PROBE_RETENTION_CLEANUP_ENABLED=false`.
+2. Backfill hourly probe rollups in chunks:
+
+```bash
+aretheyup backfill-probe-rollups --start 2026-01-01T00:00:00Z --end 2026-02-01T00:00:00Z --chunk-duration 24h
+```
+
+Use UTC hour-aligned `--start` and `--end` values. Chunk durations must be whole-hour multiples so the command never splits an hourly rollup bucket across chunks.
+
+3. Capture a fixed cutoff and backfill derived probe state/recent history:
+
+```bash
+aretheyup backfill-probe-derived --cutoff 2026-02-01T00:00:00Z --service-batch-size 500
+```
+
+4. Run `worker` so `service_statuses` refreshes, then compare legacy and snapshot responses for known healthy, degraded, and outage services.
+5. Enable `STATUS_SNAPSHOT_API_READS_ENABLED=true`, watch response parity, slow queries, cache behavior, and `service_statuses.computed_at` freshness.
+6. Enable `STATUS_SNAPSHOT_INCIDENT_READS_ENABLED=true`, then verify active incidents still open and resolve as expected.
+7. Enable `RAW_PROBE_RETENTION_CLEANUP_ENABLED=true` only after raw source data is no longer needed for parity checks.
+
+Rollback is to turn the API or incident snapshot flag back to `false`; derived writes and refreshes can keep running while reads return to the legacy path.
 
 ## Updates and shutdown
 
@@ -153,7 +181,11 @@ Relevant files:
 - `services/db.go`
 - `services/redis.go`
 - `storage/probes.go`
+- `storage/probe_rollups.go`
+- `storage/probe_derived_backfill.go`
+- `storage/statuses.go`
 - `workers/baseline.go`
+- `workers/statuses.go`
 - `workers/incidents.go`
 - `workers/probe.go`
 - `workers/cleanup.go`

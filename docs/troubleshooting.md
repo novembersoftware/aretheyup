@@ -43,6 +43,27 @@ Then check:
 
 Existing services are backfilled with a default probe config from `HomepageURL` at startup, but that default may not be the best health-check target. Review or edit the config in manage mode if results look wrong. Implemented in `main.go`, `storage/probes.go`, `storage/storage.go`, and `workers/probe.go`.
 
+## Snapshot status reads look stale or empty
+
+Snapshot-backed reads require three things:
+
+- `worker` is running and logging status refreshes
+- `service_statuses.computed_at` is fresh for active services
+- `STATUS_SNAPSHOT_API_READS_ENABLED=true` is enabled only after snapshot parity has been validated
+
+Keep `STATUS_SNAPSHOT_API_READS_ENABLED=false` to use the legacy calculation while you backfill or troubleshoot. For existing production data, run:
+
+```bash
+go run main.go backfill-probe-rollups --start 2026-01-01T00:00:00Z --end 2026-02-01T00:00:00Z --chunk-duration 24h
+go run main.go backfill-probe-derived --cutoff 2026-02-01T00:00:00Z --service-batch-size 500
+```
+
+Use a real fixed cutoff from the rollout window, not the example timestamp above. Implemented in `storage/statuses.go`, `workers/statuses.go`, `storage/probe_rollups.go`, and `storage/probe_derived_backfill.go`.
+
+## Raw probe rows are not being deleted
+
+That is expected until `RAW_PROBE_RETENTION_CLEANUP_ENABLED=true`. Cleanup is disabled by default so raw probe data remains available for derived-table backfill and parity validation. Once enabled, worker mode deletes expired raw successes after 24 hours and raw failures after 14 days in batches.
+
 ## Client IPs look wrong behind a proxy
 
 If `TRUSTED_PROXIES` is empty or invalid, Gin will not trust forwarded IP headers. Also note that `utils.GetClientIP` prefers `CF-Connecting-IP` when present. Review `api/server.go`, `api/server_test.go`, and `utils/utils.go`.
@@ -65,7 +86,12 @@ Relevant files:
 - `api/server.go`
 - `api/server_test.go`
 - `storage/probes.go`
+- `storage/probe_rollups.go`
+- `storage/probe_derived_backfill.go`
+- `storage/statuses.go`
 - `storage/storage.go`
 - `utils/utils.go`
 - `api/routes/seo.go`
 - `workers/probe.go`
+- `workers/statuses.go`
+- `workers/cleanup.go`

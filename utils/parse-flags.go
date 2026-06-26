@@ -16,6 +16,7 @@ const (
 	ModeSeed                 Mode = "seed"
 	ModeWorker               Mode = "worker"
 	ModeBackfillProbeRollups Mode = "backfill-probe-rollups"
+	ModeBackfillProbeDerived Mode = "backfill-probe-derived"
 )
 
 type Flags struct {
@@ -25,12 +26,17 @@ type Flags struct {
 	SeedCount int
 	SeedClear bool
 
-	BackfillProbeRollupsStart time.Time
-	BackfillProbeRollupsEnd   time.Time
+	BackfillProbeRollupsStart         time.Time
+	BackfillProbeRollupsEnd           time.Time
+	BackfillProbeRollupsChunkDuration time.Duration
+
+	BackfillProbeDerivedCutoff           time.Time
+	BackfillProbeDerivedServiceBatchSize int
 }
 
 var seedFlags = flag.NewFlagSet("seed", flag.ExitOnError)
 var backfillProbeRollupsFlags = flag.NewFlagSet("backfill-probe-rollups", flag.ExitOnError)
+var backfillProbeDerivedFlags = flag.NewFlagSet("backfill-probe-derived", flag.ExitOnError)
 
 func ParseFlags() Flags {
 	if len(os.Args) < 2 {
@@ -51,9 +57,10 @@ func ParseFlags() Flags {
 
 	case ModeBackfillProbeRollups:
 		startDefault := "1970-01-01T00:00:00Z"
-		endDefault := time.Now().UTC().Format(time.RFC3339)
+		endDefault := time.Now().UTC().Truncate(time.Hour).Format(time.RFC3339)
 		startRaw := backfillProbeRollupsFlags.String("start", startDefault, "inclusive RFC3339 start time")
 		endRaw := backfillProbeRollupsFlags.String("end", endDefault, "exclusive RFC3339 end time")
+		chunkDuration := backfillProbeRollupsFlags.Duration("chunk-duration", 24*time.Hour, "whole-hour chunk duration for production-safe backfills; set 0 to disable chunking")
 		backfillProbeRollupsFlags.Parse(os.Args[2:])
 
 		start, err := time.Parse(time.RFC3339, *startRaw)
@@ -68,7 +75,39 @@ func ParseFlags() Flags {
 			printUsage()
 			os.Exit(1)
 		}
-		return Flags{Mode: ModeBackfillProbeRollups, BackfillProbeRollupsStart: start, BackfillProbeRollupsEnd: end}
+		return Flags{
+			Mode:                              ModeBackfillProbeRollups,
+			BackfillProbeRollupsStart:         start,
+			BackfillProbeRollupsEnd:           end,
+			BackfillProbeRollupsChunkDuration: *chunkDuration,
+		}
+
+	case ModeBackfillProbeDerived:
+		cutoffRaw := backfillProbeDerivedFlags.String("cutoff", "", "required exclusive RFC3339 cutoff time")
+		serviceBatchSize := backfillProbeDerivedFlags.Int("service-batch-size", 500, "number of services to process per transaction batch")
+		backfillProbeDerivedFlags.Parse(os.Args[2:])
+
+		if *cutoffRaw == "" {
+			fmt.Fprintf(os.Stderr, "missing required --cutoff value\n\n")
+			printUsage()
+			os.Exit(1)
+		}
+		cutoff, err := time.Parse(time.RFC3339, *cutoffRaw)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "invalid --cutoff value %q: %v\n\n", *cutoffRaw, err)
+			printUsage()
+			os.Exit(1)
+		}
+		if *serviceBatchSize <= 0 {
+			fmt.Fprintf(os.Stderr, "invalid --service-batch-size value %d: must be positive\n\n", *serviceBatchSize)
+			printUsage()
+			os.Exit(1)
+		}
+		return Flags{
+			Mode:                                 ModeBackfillProbeDerived,
+			BackfillProbeDerivedCutoff:           cutoff,
+			BackfillProbeDerivedServiceBatchSize: *serviceBatchSize,
+		}
 
 	default:
 		fmt.Fprintf(os.Stderr, "unknown subcommand %q\n\n", os.Args[1])
@@ -91,5 +130,9 @@ func printUsage() {
 	fmt.Fprintf(os.Stderr, "           --clear       clear existing data before seeding\n")
 	fmt.Fprintf(os.Stderr, "  backfill-probe-rollups\n")
 	fmt.Fprintf(os.Stderr, "           --start RFC3339   inclusive start time (default 1970-01-01T00:00:00Z)\n")
-	fmt.Fprintf(os.Stderr, "           --end RFC3339     exclusive end time (default now)\n")
+	fmt.Fprintf(os.Stderr, "           --end RFC3339     exclusive end time (default current UTC hour)\n")
+	fmt.Fprintf(os.Stderr, "           --chunk-duration duration   whole-hour chunk size (default 24h, 0 disables)\n")
+	fmt.Fprintf(os.Stderr, "  backfill-probe-derived\n")
+	fmt.Fprintf(os.Stderr, "           --cutoff RFC3339            required exclusive cutoff time\n")
+	fmt.Fprintf(os.Stderr, "           --service-batch-size int    services per batch (default 500)\n")
 }

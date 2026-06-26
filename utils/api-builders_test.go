@@ -115,6 +115,25 @@ func TestBuildServiceResponsesFromData(t *testing.T) {
 	}
 }
 
+func TestBuildServiceResponsesFromSnapshots(t *testing.T) {
+	computedAt := time.Date(2026, time.January, 10, 12, 0, 0, 0, time.UTC)
+	rows := []storage.ServiceRow{
+		{ID: 1, Slug: "one", Name: "One", HomepageURL: "https://one.example", Category: "infra", RecentReportCount: 6, Status: string(algorithm.StatusOutage), ComputedAt: computedAt},
+		{ID: 2, Slug: "two", Name: "Two", HomepageURL: "https://two.example", Category: "infra", RecentReportCount: 0},
+	}
+
+	got := BuildServiceResponsesFromSnapshots(rows)
+	if len(got) != 2 {
+		t.Fatalf("len(BuildServiceResponsesFromSnapshots) = %d, want 2", len(got))
+	}
+	if got[0].Status != string(algorithm.StatusOutage) || got[0].RecentReports != 6 || !got[0].ComputedAt.Equal(computedAt) {
+		t.Fatalf("snapshot response[0] = %+v, want outage with 6 reports at %s", got[0], computedAt)
+	}
+	if got[1].Status != string(algorithm.StatusOperational) {
+		t.Fatalf("empty snapshot status = %q, want %q", got[1].Status, algorithm.StatusOperational)
+	}
+}
+
 func TestBuildReportHistogram(t *testing.T) {
 	// Validate the chart contract:
 	// - exactly 48 half-hour buckets

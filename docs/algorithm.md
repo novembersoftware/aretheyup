@@ -13,7 +13,7 @@ It combines two signal families:
 - recent user outage reports
 - recent probe failures
 
-The implementation lives in `algorithm/status.go`. The same logic is reused by API responses and the incident worker through `utils/api-status.go` and `workers/incidents.go`.
+The implementation lives in `algorithm/status.go`. Legacy API and incident reads call the same logic through `utils/api-status.go` and `workers/incidents.go`; snapshot reads use rows written by `storage/statuses.go`.
 
 ## Inputs
 
@@ -122,9 +122,19 @@ Status is resolved in this order:
 3. `Degraded` if probes are degraded and neither outage rule fired
 4. `Operational` otherwise
 
+## Status snapshots
+
+`service_statuses` stores the current status decision and the inputs used to make it: recent report count, recent probe counts, the active hour-of-week baseline, and `computed_at`.
+
+- `workers/statuses.go` refreshes snapshots every 30 seconds in `worker` mode
+- the refresh path batches active service IDs, report counts, baselines, and probe state reads before upserting snapshots
+- API list, search, and detail reads stay on legacy calculation until `STATUS_SNAPSHOT_API_READS_ENABLED=true`
+- incident reconciliation stays on legacy calculation until `STATUS_SNAPSHOT_INCIDENT_READS_ENABLED=true`
+- snapshot read cache keys are separate from legacy list cache keys so flipping read mode does not reuse stale cached rows
+
 ## Incident behavior
 
-The incident worker recalculates status once per minute for active services.
+The incident worker reconciles status once per minute for active services. By default it recalculates status from report counts, baselines, and derived probe state. When `STATUS_SNAPSHOT_INCIDENT_READS_ENABLED=true`, it reads `service_statuses` instead.
 
 - incidents open only on transitions into `Outage`
 - incidents resolve as soon as status leaves `Outage`
@@ -139,7 +149,7 @@ Recent probe inputs are produced by the separate `probe` runtime mode.
 - each completed probe also writes `probe_recent_results`, which is capped at the latest 50 rows per service for UI and debugging history
 - each completed probe also updates the service's current UTC hourly rollup in `probe_hourly_rollups`
 - request-time probe summaries read the latest capped rows through `storage.GetRecentProbeStats` and `storage.GetProbeServiceDetail`
-- raw success rows are retained for 24 hours, raw failure rows are retained for 14 days, and worker-mode cleanup deletes expired raw rows in batches
+- raw success rows are retained for 24 hours and raw failure rows are retained for 14 days after `RAW_PROBE_RETENTION_CLEANUP_ENABLED=true`; cleanup stays disabled by default during rollout validation
 
 Failure-type normalization is implemented in `workers/probe_failure.go` and `structs/probe_failure.go`.
 
@@ -172,13 +182,21 @@ If probe rollup tables are unavailable, report baselines still continue and prob
 
 The raw `probe_results` table is still used for ingestion, cleanup, and one-time rollup backfills. Recent UI/debug history comes from `probe_recent_results`, so raw success retention can stay short without removing the latest per-service samples.
 
-Backfill command:
+Rollup backfill command:
 
 ```bash
-aretheyup backfill-probe-rollups --start 2026-01-01T00:00:00Z --end 2026-02-01T00:00:00Z
+aretheyup backfill-probe-rollups --start 2026-01-01T00:00:00Z --end 2026-02-01T00:00:00Z --chunk-duration 24h
 ```
 
-The backfill is idempotent: conflicting hourly buckets are replaced with aggregates calculated from raw rows. Run any historical rollup backfill before enabling raw retention cleanup. After cleanup removes raw success rows, raw history is no longer complete enough to rebuild older rollup windows accurately.
+The rollup backfill is idempotent: conflicting hourly buckets are replaced with aggregates calculated from raw rows. Use UTC hour-aligned `--start` and `--end` values so chunks never split an hourly bucket. `--chunk-duration` defaults to `24h`; set it to `0` to process the full range in one query. Run historical rollup backfills before enabling raw retention cleanup. After cleanup removes raw success rows, raw history is no longer complete enough to rebuild older rollup windows accurately.
+
+Derived probe backfill command:
+
+```bash
+aretheyup backfill-probe-derived --cutoff 2026-02-01T00:00:00Z --service-batch-size 500
+```
+
+The derived backfill rebuilds `probe_recent_results` from raw rows before the fixed cutoff, preserves the 50-row recent-history cap, and upserts `service_probe_states` only when the existing state is not newer than the backfilled latest raw row. Re-run it with the same cutoff for idempotence.
 
 Median latency is intentionally omitted from refresh work unless it becomes product-critical.
 
@@ -201,7 +219,9 @@ Relevant files:
 - `utils/api-status.go`
 - `utils/api-builders.go`
 - `utils/probes.go`
+- `storage/statuses.go`
 - `workers/incidents.go`
+- `workers/statuses.go`
 - `workers/probe.go`
 - `workers/probe_failure.go`
 - `storage/baselines.go`

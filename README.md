@@ -82,8 +82,12 @@ go run main.go manage
 # Probe mode (synthetic checks)
 go run main.go probe
 
-# Worker mode (baseline refresh, incidents, cleanup)
+# Worker mode (baselines, status snapshots, incidents, optional cleanup)
 go run main.go worker
+
+# Backfill derived probe tables during rollout
+go run main.go backfill-probe-rollups --start 2026-01-01T00:00:00Z --end 2026-02-01T00:00:00Z --chunk-duration 24h
+go run main.go backfill-probe-derived --cutoff 2026-02-01T00:00:00Z --service-batch-size 500
 
 # Seed mode
 go run main.go seed --count 25 --clear
@@ -107,6 +111,9 @@ See `.env.example` for full list. Most important values:
 - `TRUSTED_PROXIES` (comma-separated CIDRs/IPs, optional)
 - `REPORT_RATE_LIMIT_MAX_REQUESTS`
 - `REPORT_RATE_LIMIT_WINDOW_SECONDS`
+- `STATUS_SNAPSHOT_API_READS_ENABLED`
+- `STATUS_SNAPSHOT_INCIDENT_READS_ENABLED`
+- `RAW_PROBE_RETENTION_CLEANUP_ENABLED`
 
 ## Status algorithm (high level)
 
@@ -122,6 +129,7 @@ Reference implementation:
 
 - `algorithm/status.go`
 - `workers/baseline.go`
+- `workers/statuses.go`
 - `workers/incidents.go`
 
 ## SEO behavior

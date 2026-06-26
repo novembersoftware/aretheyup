@@ -41,6 +41,8 @@ type ServiceRow struct {
 	HomepageURL       string
 	Category          string
 	RecentReportCount int64
+	Status            string
+	ComputedAt        time.Time
 }
 
 type SitemapServiceRow struct {
@@ -53,7 +55,7 @@ func (s *Storage) ListServices(ctx context.Context, limit, offset int) ([]Servic
 	cacheKey := ""
 	shouldUseCache := limit == 49 && offset == 0
 	if shouldUseCache {
-		cacheKey = listServicesCacheKey(limit, offset)
+		cacheKey = listServicesCacheKey("legacy", limit, offset)
 		if cached, ok := s.getCachedServiceRows(ctx, cacheKey); ok {
 			return cached, nil
 		}
@@ -84,6 +86,41 @@ func (s *Storage) ListServices(ctx context.Context, limit, offset int) ([]Servic
 	return rows, nil
 }
 
+// ListServicesFromStatusSnapshots returns services using precomputed status rows.
+func (s *Storage) ListServicesFromStatusSnapshots(ctx context.Context, limit, offset int) ([]ServiceRow, error) {
+	cacheKey := ""
+	shouldUseCache := limit == 49 && offset == 0
+	if shouldUseCache {
+		cacheKey = listServicesCacheKey("snapshot", limit, offset)
+		if cached, ok := s.getCachedServiceRows(ctx, cacheKey); ok {
+			return cached, nil
+		}
+	}
+
+	var rows []ServiceRow
+	result := s.db.WithContext(ctx).Raw(`
+		SELECT s.id, s.slug, s.name, s.homepage_url, s.category,
+		       COALESCE(ss.recent_reports, 0) AS recent_report_count,
+		       COALESCE(ss.status, ?) AS status,
+		       COALESCE(ss.computed_at, TIMESTAMPTZ '0001-01-01 00:00:00+00') AS computed_at
+		FROM services s
+		LEFT JOIN service_statuses ss ON ss.service_id = s.id
+		WHERE s.active = true
+		ORDER BY recent_report_count DESC, s.name ASC
+		LIMIT ?
+		OFFSET ?
+	`, string(algorithm.StatusOperational), limit, offset).Scan(&rows)
+	if result.Error != nil {
+		return rows, result.Error
+	}
+
+	if shouldUseCache {
+		s.setCachedServiceRows(ctx, cacheKey, rows)
+	}
+
+	return rows, nil
+}
+
 // SearchServices returns services filtered by name (case-insensitive substring match),
 // ordered by recent report count (descending)
 func (s *Storage) SearchServices(ctx context.Context, query string) ([]ServiceRow, error) {
@@ -100,6 +137,23 @@ func (s *Storage) SearchServices(ctx context.Context, query string) ([]ServiceRo
 		ORDER BY recent_report_count DESC
 		LIMIT 48
 	`, reportWindowStart, "%"+query+"%").Scan(&rows)
+	return rows, result.Error
+}
+
+// SearchServicesFromStatusSnapshots returns matching services using precomputed status rows.
+func (s *Storage) SearchServicesFromStatusSnapshots(ctx context.Context, query string) ([]ServiceRow, error) {
+	var rows []ServiceRow
+	result := s.db.WithContext(ctx).Raw(`
+		SELECT s.id, s.slug, s.name, s.homepage_url, s.category,
+		       COALESCE(ss.recent_reports, 0) AS recent_report_count,
+		       COALESCE(ss.status, ?) AS status,
+		       COALESCE(ss.computed_at, TIMESTAMPTZ '0001-01-01 00:00:00+00') AS computed_at
+		FROM services s
+		LEFT JOIN service_statuses ss ON ss.service_id = s.id
+		WHERE s.active = true AND LOWER(s.name) LIKE LOWER(?)
+		ORDER BY recent_report_count DESC, s.name ASC
+		LIMIT 48
+	`, string(algorithm.StatusOperational), "%"+query+"%").Scan(&rows)
 	return rows, result.Error
 }
 
@@ -322,11 +376,15 @@ func (s *Storage) invalidateServiceListCache(ctx context.Context) {
 		return
 	}
 
-	if err := s.redis.Del(ctx, listServicesCacheKey(49, 0)).Err(); err != nil {
-		log.Debug().Err(err).Str("cache_key", listServicesCacheKey(49, 0)).Msg("Failed to invalidate list cache")
+	keys := []string{
+		listServicesCacheKey("legacy", 49, 0),
+		listServicesCacheKey("snapshot", 49, 0),
+	}
+	if err := s.redis.Del(ctx, keys...).Err(); err != nil {
+		log.Debug().Err(err).Strs("cache_keys", keys).Msg("Failed to invalidate list cache")
 	}
 }
 
-func listServicesCacheKey(limit, offset int) string {
-	return fmt.Sprintf("services:list:v2:limit:%d:offset:%d", limit, offset)
+func listServicesCacheKey(mode string, limit, offset int) string {
+	return fmt.Sprintf("services:list:%s:v3:limit:%d:offset:%d", mode, limit, offset)
 }

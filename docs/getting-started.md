@@ -35,7 +35,7 @@ The process loads `.env.local`, opens PostgreSQL and Redis, runs GORM migrations
 go run main.go worker
 ```
 
-The worker mode refreshes baselines, reconciles incidents, and cleans up expired raw probe results.
+The worker mode refreshes baselines, refreshes status snapshots, reconciles incidents, and cleans up expired raw probe results only when `RAW_PROBE_RETENTION_CLEANUP_ENABLED=true`.
 
 5. In a third terminal, start the probe worker if you want live synthetic probe data:
 
@@ -78,7 +78,16 @@ Runs the synthetic probe loop that claims due probe configs on the global 5-minu
 go run main.go worker
 ```
 
-Runs recurring database jobs for baseline refresh, incident reconciliation, and raw probe history cleanup. Implemented in `main.go`, `workers/baseline.go`, `workers/incidents.go`, and `workers/cleanup.go`.
+Runs recurring database jobs for baseline refresh, status snapshot refresh, incident reconciliation, and optional raw probe history cleanup. Raw cleanup requires `RAW_PROBE_RETENTION_CLEANUP_ENABLED=true`. Implemented in `main.go`, `workers/baseline.go`, `workers/statuses.go`, `workers/incidents.go`, and `workers/cleanup.go`.
+
+### Backfills
+
+```bash
+go run main.go backfill-probe-rollups --start 2026-01-01T00:00:00Z --end 2026-02-01T00:00:00Z --chunk-duration 24h
+go run main.go backfill-probe-derived --cutoff 2026-02-01T00:00:00Z --service-batch-size 500
+```
+
+Use rollout-specific timestamps. `backfill-probe-rollups` rebuilds hourly probe aggregates from raw history. `backfill-probe-derived` rebuilds `service_probe_states` and capped `probe_recent_results` from rows before a fixed cutoff.
 
 ### Seeder
 
@@ -106,7 +115,7 @@ After startup, verify:
 - `GET /` renders the index page.
 - `GET /api/services` succeeds only when the request carries an allowed same-site `Origin` or `Referer`.
 - `X-Request-ID` is present on responses.
-- `go run main.go worker` logs baseline, incident, and probe-result cleanup worker startup.
+- `go run main.go worker` logs baseline, status, and incident worker startup. Probe-result cleanup logs only when `RAW_PROBE_RETENTION_CLEANUP_ENABLED=true`.
 - `go run main.go probe` begins writing probe results for enabled services.
 
 Relevant files:
@@ -121,6 +130,7 @@ Relevant files:
 - `api/middleware/origin.go`
 - `api/middleware/request-id.go`
 - `workers/baseline.go`
+- `workers/statuses.go`
 - `workers/incidents.go`
 - `workers/probe.go`
 - `workers/cleanup.go`

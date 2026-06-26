@@ -15,6 +15,9 @@ The config struct is defined in `structs/config.go` and loaded by `config/config
 | `TRUSTED_PROXIES` | optional | Comma-separated proxy CIDRs or IPs trusted for forwarded client IP handling. |
 | `REPORT_RATE_LIMIT_MAX_REQUESTS` | no | Max allowed report submissions per key within the rate-limit window. |
 | `REPORT_RATE_LIMIT_WINDOW_SECONDS` | no | Report rate-limit window length in seconds. |
+| `STATUS_SNAPSHOT_API_READS_ENABLED` | no | When `true`, service list, search, and detail status reads use `service_statuses` instead of recalculating status from raw inputs. Default `false`. |
+| `STATUS_SNAPSHOT_INCIDENT_READS_ENABLED` | no | When `true`, incident reconciliation reads current status from `service_statuses`. Default `false`. |
+| `RAW_PROBE_RETENTION_CLEANUP_ENABLED` | no | When `true`, worker mode deletes expired raw probe rows. Default `false` so rollout backfills can validate against raw source data first. |
 
 Defaults and sample values live in `.env.example`.
 
@@ -56,6 +59,21 @@ This behavior is covered in `api/server_test.go`.
 
 The CSP is currently report-only, not enforcing.
 
+## Rollout gates
+
+The status snapshot and raw-retention switches are intentionally closed by default.
+
+Recommended order:
+
+1. Deploy migrations and dual-write code with all three flags set to `false`.
+2. Run the probe rollup and derived probe backfills.
+3. Let `worker` refresh `service_statuses` and compare snapshot responses against legacy responses.
+4. Enable `STATUS_SNAPSHOT_API_READS_ENABLED=true` after parity looks good.
+5. Enable `STATUS_SNAPSHOT_INCIDENT_READS_ENABLED=true` after incident reconciliation parity looks good.
+6. Enable `RAW_PROBE_RETENTION_CLEANUP_ENABLED=true` only after raw probe history is no longer needed for validation.
+
+Rollback is flag-based: turn the API or incident snapshot flag back to `false` to return to legacy read calculation while the derived tables continue to be maintained.
+
 ## Container configuration
 
 ### Development
@@ -72,7 +90,7 @@ The CSP is currently report-only, not enforcing.
 - an `app` profile that starts all app containers together
 - a `deps` profile that starts PostgreSQL and Redis
 
-The app services are built from `Dockerfile`. `api` runs `command: ["api"]`, `probe` runs `command: ["probe"]`, and `worker` runs `command: ["worker"]`. The Compose file sets `ENV`, `API_PORT`, `DB_DSN`, `REDIS_URL`, and `ALLOWED_PAGE_ORIGINS`. Set `SITE_BASE_URL` explicitly in real deployments if you need stable canonical and sitemap URLs independent of the inbound host. `robots.txt` omits the sitemap line when `SITE_BASE_URL` is empty. That behavior is implemented in `api/routes/seo.go` and `utils/utils.go`.
+The app services are built from `Dockerfile`. `api` runs `command: ["api"]`, `probe` runs `command: ["probe"]`, and `worker` runs `command: ["worker"]`. The Compose file sets `ENV`, `API_PORT`, `DB_DSN`, `REDIS_URL`, `ALLOWED_PAGE_ORIGINS`, and the rollout gate defaults. Set `SITE_BASE_URL` explicitly in real deployments if you need stable canonical and sitemap URLs independent of the inbound host. `robots.txt` omits the sitemap line when `SITE_BASE_URL` is empty. That behavior is implemented in `api/routes/seo.go` and `utils/utils.go`.
 
 Relevant files:
 

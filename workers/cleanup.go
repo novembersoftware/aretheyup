@@ -23,7 +23,12 @@ type probeCleanupStore interface {
 	VacuumAnalyzeProbeResults(ctx context.Context) error
 }
 
-func StartProbeResultCleaner(store *storage.Storage) {
+func StartProbeResultCleaner(store *storage.Storage, enabled bool) {
+	if !enabled {
+		log.Info().Msg("Probe result cleaner disabled")
+		return
+	}
+
 	log.Info().Dur("interval", probeCleanupInterval).Msg("Starting probe result cleaner")
 
 	go func() {

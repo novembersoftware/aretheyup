@@ -63,6 +63,30 @@ func BuildServiceResponses(c *gin.Context, store *storage.Storage, rows []storag
 	return buildServiceResponsesFromData(rows, baselines, probeStats), nil
 }
 
+func BuildServiceResponsesFromSnapshots(rows []storage.ServiceRow) []structs.ServiceResponse {
+	response := make([]structs.ServiceResponse, len(rows))
+	for i, row := range rows {
+		status := row.Status
+		if status == "" {
+			status = string(algorithm.StatusOperational)
+		}
+
+		response[i] = structs.ServiceResponse{
+			ID:            row.ID,
+			Slug:          row.Slug,
+			Name:          row.Name,
+			URL:           row.HomepageURL,
+			IconURL:       fmt.Sprintf("https://s2.googleusercontent.com/s2/favicons?sz=64&domain=%s", row.HomepageURL),
+			Category:      row.Category,
+			Status:        status,
+			RecentReports: row.RecentReportCount,
+			ComputedAt:    row.ComputedAt,
+		}
+	}
+
+	return response
+}
+
 func buildServiceResponsesFromData(
 	rows []storage.ServiceRow,
 	baselines map[uint]structs.ServiceBaseline,

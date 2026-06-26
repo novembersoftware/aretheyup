@@ -441,6 +441,10 @@ func TestCleanupOldProbeResultsVacuumsAfterLargePurge(t *testing.T) {
 	}
 }
 
+func TestStartProbeResultCleanerDisabledDoesNotRequireStore(t *testing.T) {
+	StartProbeResultCleaner(nil, false)
+}
+
 func TestRunProbeWorkerReturnsOnCanceledContext(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
