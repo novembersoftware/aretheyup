@@ -15,6 +15,9 @@ type Service struct {
 	Submissions  []ServiceSubmission
 	UserReports  []UserReport
 	ProbeResults []ProbeResult
+	// Current probe read model and bounded recent history.
+	ProbeState         ServiceProbeState
+	ProbeRecentResults []ProbeRecentResult
 	// One baseline row per hour-of-week bucket for this service
 	Baselines   []ServiceBaseline
 	Incidents   []Incident
@@ -73,6 +76,43 @@ type ProbeResult struct {
 	ResponseTimeMs *int   // nil if ''
 	FailureType    ProbeFailureType
 	ErrorMessage   string // populated on failure
+	CreatedAt      time.Time
+	UpdatedAt      time.Time
+}
+
+type ServiceProbeState struct {
+	ID                        uint `gorm:"primaryKey"`
+	ServiceID                 uint `gorm:"uniqueIndex;not null"`
+	LastCheckedAt             *time.Time
+	LastResultSuccess         bool `gorm:"not null;default:false"`
+	LastStatusCode            *int
+	LastResponseTimeMs        *int
+	LastResultFailureType     ProbeFailureType
+	LastResultErrorMessage    string
+	LastSuccessAt             *time.Time
+	LastSuccessStatusCode     *int
+	LastSuccessResponseTimeMs *int
+	LastFailureAt             *time.Time
+	LastFailureStatusCode     *int
+	LastFailureResponseTimeMs *int
+	LastFailureType           ProbeFailureType
+	LastFailureErrorMessage   string
+	RecentProbeTotal          int64 `gorm:"not null;default:0"`
+	RecentProbeFailures       int64 `gorm:"not null;default:0"`
+	RecentWindowUpdatedAt     *time.Time
+	CreatedAt                 time.Time
+	UpdatedAt                 time.Time
+}
+
+type ProbeRecentResult struct {
+	ID             uint      `gorm:"primaryKey"`
+	ServiceID      uint      `gorm:"not null"`
+	CheckedAt      time.Time `gorm:"not null"`
+	Success        bool      `gorm:"not null"`
+	StatusCode     *int
+	ResponseTimeMs *int
+	FailureType    ProbeFailureType
+	ErrorMessage   string
 	CreatedAt      time.Time
 	UpdatedAt      time.Time
 }
