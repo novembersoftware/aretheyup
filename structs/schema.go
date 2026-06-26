@@ -18,6 +18,7 @@ type Service struct {
 	// Current probe read model and bounded recent history.
 	ProbeState         ServiceProbeState
 	ProbeRecentResults []ProbeRecentResult
+	ProbeHourlyRollups []ProbeHourlyRollup
 	// One baseline row per hour-of-week bucket for this service
 	Baselines   []ServiceBaseline
 	Incidents   []Incident
@@ -78,6 +79,21 @@ type ProbeResult struct {
 	ErrorMessage   string // populated on failure
 	CreatedAt      time.Time
 	UpdatedAt      time.Time
+}
+
+type ProbeHourlyRollup struct {
+	ID                  uint      `gorm:"primaryKey"`
+	ServiceID           uint      `gorm:"not null;uniqueIndex:idx_probe_hourly_rollups_service_bucket"`
+	BucketStart         time.Time `gorm:"not null;uniqueIndex:idx_probe_hourly_rollups_service_bucket"`
+	HourOfWeek          int       `gorm:"not null;index"`
+	TotalCount          int64     `gorm:"not null;default:0"`
+	FailureCount        int64     `gorm:"not null;default:0"`
+	SuccessLatencySumMs int64     `gorm:"not null;default:0"`
+	SuccessLatencyCount int64     `gorm:"not null;default:0"`
+	MinLatencyMs        *int
+	MaxLatencyMs        *int
+	CreatedAt           time.Time
+	UpdatedAt           time.Time
 }
 
 type ServiceProbeState struct {

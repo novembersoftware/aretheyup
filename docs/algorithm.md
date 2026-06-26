@@ -136,6 +136,7 @@ Recent probe inputs are produced by the separate `probe` runtime mode.
 
 - `workers/probe.go` claims due enabled probe configs for active services
 - each run writes one `probe_results` row with status code, latency, and normalized failure type
+- each completed probe also updates the service's current UTC hourly rollup in `probe_hourly_rollups`
 - request-time probe summaries read the latest rows through `storage.GetRecentProbeStats` and `storage.GetProbeServiceDetail`
 - raw probe history is retained for 30 days before worker-mode cleanup
 
@@ -154,14 +155,31 @@ Report baseline generation in `storage/baselines.go`:
 - rolls those windows into `hour_of_week` buckets (`0..167`, UTC)
 - stores mean reports, standard deviation, and weekly sample count per bucket
 
-Probe baseline generation uses the same hour-of-week buckets over `probe_results` and stores:
+Probe baseline generation uses the same hour-of-week buckets over `probe_hourly_rollups`, so refresh runtime depends on compact hourly aggregates rather than raw probe history size. The rollups are updated during probe completion and can be rebuilt from raw history with `backfill-probe-rollups`.
+
+Probe baselines store:
 
 - average failure rate
 - probe sample count
-- median success latency
-- latency sample count
+- success latency sample count
 
-If probe tables are unavailable, report baselines still continue and probe data simply behaves like no probe signal.
+`probe_latency_median_ms` remains in the schema for compatibility, but baseline refresh currently writes `0` because it no longer calculates median latency from raw probe rows.
+
+Hourly rollup buckets retain success-only latency sums, counts, minimums, and maximums for future latency baseline work, but those values are not part of the current status decision.
+
+If probe rollup tables are unavailable, report baselines still continue and probe data simply behaves like no probe signal.
+
+The raw `probe_results` table is still used for ingestion, recent read models, cleanup, and one-time rollup backfills.
+
+Backfill command:
+
+```bash
+aretheyup backfill-probe-rollups --start 2026-01-01T00:00:00Z --end 2026-02-01T00:00:00Z
+```
+
+The backfill is idempotent: conflicting hourly buckets are replaced with aggregates calculated from raw rows.
+
+Median latency is intentionally omitted from refresh work unless it becomes product-critical.
 
 ## Test coverage
 

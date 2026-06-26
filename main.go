@@ -47,6 +47,11 @@ func main() {
 		log.Fatal().Err(err).Msg("Failed to migrate database")
 	}
 
+	if flags.Mode == utils.ModeBackfillProbeRollups {
+		backfillProbeRollupsMode(storage.New(db, nil))
+		return
+	}
+
 	redis, err := services.NewRedis(config.C.RedisURL)
 	if err != nil {
 		log.Fatal().Err(err).Msg("Failed to connect to Redis")
@@ -93,6 +98,19 @@ func probeMode(store *storage.Storage) {
 
 func seedMode(db *gorm.DB) {
 	services.SeedDB(db, flags.SeedCount, flags.SeedClear)
+}
+
+func backfillProbeRollupsMode(store *storage.Storage) {
+	inserted, err := store.BackfillProbeHourlyRollups(context.Background(), flags.BackfillProbeRollupsStart, flags.BackfillProbeRollupsEnd)
+	if err != nil {
+		log.Fatal().Err(err).Msg("Failed to backfill probe hourly rollups")
+	}
+
+	log.Info().
+		Int64("rows_affected", inserted).
+		Time("start", flags.BackfillProbeRollupsStart).
+		Time("end", flags.BackfillProbeRollupsEnd).
+		Msg("Backfilled probe hourly rollups")
 }
 
 func workerMode(store *storage.Storage) {

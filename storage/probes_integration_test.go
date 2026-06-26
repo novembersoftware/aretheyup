@@ -3,6 +3,7 @@ package storage
 import (
 	"context"
 	"fmt"
+	"math"
 	"os"
 	"testing"
 	"time"
@@ -104,6 +105,215 @@ func TestCompleteProbeLeaseUpdatesStateAndRecentHistory(t *testing.T) {
 	}
 	if detail.History[1].Success || detail.History[1].CheckedAt != checkedAt {
 		t.Fatalf("second history row = %+v, want failure at %s", detail.History[1], checkedAt)
+	}
+}
+
+func TestCompleteProbeLeaseCreatesAndIncrementsHourlyRollup(t *testing.T) {
+	store, db := newProbeIntegrationStore(t)
+	ctx := context.Background()
+	checkedAt := time.Date(2026, time.January, 10, 12, 10, 0, 0, time.UTC)
+
+	service := createProbeTestService(t, db)
+	config := createLeasedProbeConfig(t, db, service.ID, "failure-token", checkedAt)
+
+	failureStatus := 503
+	failureLatency := 820
+	if err := store.CompleteProbeLease(ctx, config.ID, "failure-token", structs.ProbeResult{
+		Region:         "global",
+		Success:        false,
+		StatusCode:     &failureStatus,
+		ResponseTimeMs: &failureLatency,
+		FailureType:    structs.ProbeFailureTypeHTTPStatus,
+		ErrorMessage:   "unexpected status: got 503 want 200",
+	}, checkedAt); err != nil {
+		t.Fatalf("CompleteProbeLease(failure) error = %v", err)
+	}
+
+	successAt := checkedAt.Add(15 * time.Minute)
+	leaseProbeConfig(t, db, config.ID, "success-token", successAt)
+	successStatus := 200
+	successLatency := 180
+	if err := store.CompleteProbeLease(ctx, config.ID, "success-token", structs.ProbeResult{
+		Region:         "global",
+		Success:        true,
+		StatusCode:     &successStatus,
+		ResponseTimeMs: &successLatency,
+	}, successAt); err != nil {
+		t.Fatalf("CompleteProbeLease(success) error = %v", err)
+	}
+
+	var rollup structs.ProbeHourlyRollup
+	bucketStart := checkedAt.UTC().Truncate(time.Hour)
+	if err := db.Where("service_id = ? AND bucket_start = ?", service.ID, bucketStart).First(&rollup).Error; err != nil {
+		t.Fatalf("load hourly rollup: %v", err)
+	}
+	if rollup.HourOfWeek != hourOfWeek(bucketStart) {
+		t.Fatalf("HourOfWeek = %d, want %d", rollup.HourOfWeek, hourOfWeek(bucketStart))
+	}
+	if rollup.TotalCount != 2 || rollup.FailureCount != 1 {
+		t.Fatalf("rollup counts = total %d failures %d, want 2/1", rollup.TotalCount, rollup.FailureCount)
+	}
+	if rollup.SuccessLatencySumMs != int64(successLatency) || rollup.SuccessLatencyCount != 1 {
+		t.Fatalf("rollup latency aggregate = sum %d count %d, want %d/1", rollup.SuccessLatencySumMs, rollup.SuccessLatencyCount, successLatency)
+	}
+	if rollup.MinLatencyMs == nil || *rollup.MinLatencyMs != successLatency {
+		t.Fatalf("rollup MinLatencyMs = %v, want %d", rollup.MinLatencyMs, successLatency)
+	}
+	if rollup.MaxLatencyMs == nil || *rollup.MaxLatencyMs != successLatency {
+		t.Fatalf("rollup MaxLatencyMs = %v, want %d", rollup.MaxLatencyMs, successLatency)
+	}
+}
+
+func TestBackfillProbeHourlyRollupsFeedsBaselineRefresh(t *testing.T) {
+	store, db := newProbeIntegrationStore(t)
+	ctx := context.Background()
+
+	service := createProbeTestService(t, db)
+	createdAt := time.Date(2026, time.January, 1, 0, 0, 0, 0, time.UTC)
+	if err := db.Model(&service).Updates(map[string]any{
+		"created_at": createdAt,
+		"updated_at": createdAt,
+	}).Error; err != nil {
+		t.Fatalf("set service created_at: %v", err)
+	}
+
+	sundayNoonA := time.Date(2026, time.January, 4, 12, 10, 0, 0, time.UTC)
+	sundayNoonB := sundayNoonA.AddDate(0, 0, 7)
+	mondayAfternoon := time.Date(2026, time.January, 5, 13, 5, 0, 0, time.UTC)
+	rawRows := []structs.ProbeResult{
+		{ServiceID: service.ID, Region: "global", Success: true, StatusCode: probeIntPtr(200), ResponseTimeMs: probeIntPtr(100), CreatedAt: sundayNoonA, UpdatedAt: sundayNoonA},
+		{ServiceID: service.ID, Region: "global", Success: false, StatusCode: probeIntPtr(503), ResponseTimeMs: probeIntPtr(900), FailureType: structs.ProbeFailureTypeHTTPStatus, CreatedAt: sundayNoonA.Add(10 * time.Minute), UpdatedAt: sundayNoonA.Add(10 * time.Minute)},
+		{ServiceID: service.ID, Region: "global", Success: true, StatusCode: probeIntPtr(200), CreatedAt: sundayNoonA.Add(20 * time.Minute), UpdatedAt: sundayNoonA.Add(20 * time.Minute)},
+		{ServiceID: service.ID, Region: "global", Success: false, FailureType: structs.ProbeFailureTypeConnect, CreatedAt: sundayNoonB, UpdatedAt: sundayNoonB},
+		{ServiceID: service.ID, Region: "global", Success: true, StatusCode: probeIntPtr(200), ResponseTimeMs: probeIntPtr(200), CreatedAt: sundayNoonB.Add(30 * time.Minute), UpdatedAt: sundayNoonB.Add(30 * time.Minute)},
+		{ServiceID: service.ID, Region: "global", Success: true, StatusCode: probeIntPtr(200), ResponseTimeMs: probeIntPtr(300), CreatedAt: mondayAfternoon, UpdatedAt: mondayAfternoon},
+	}
+	if err := db.Create(&rawRows).Error; err != nil {
+		t.Fatalf("create raw probe rows: %v", err)
+	}
+
+	start := createdAt
+	end := time.Date(2026, time.January, 20, 0, 0, 0, 0, time.UTC)
+	if _, err := store.BackfillProbeHourlyRollups(ctx, start, end); err != nil {
+		t.Fatalf("BackfillProbeHourlyRollups error = %v", err)
+	}
+
+	sundayNoonBucket := sundayNoonA.Truncate(time.Hour)
+	if err := db.Model(&structs.ProbeHourlyRollup{}).
+		Where("service_id = ? AND bucket_start = ?", service.ID, sundayNoonBucket).
+		Updates(map[string]any{
+			"total_count":   999,
+			"failure_count": 999,
+		}).Error; err != nil {
+		t.Fatalf("mutate rollup before idempotence check: %v", err)
+	}
+	if _, err := store.BackfillProbeHourlyRollups(ctx, start, end); err != nil {
+		t.Fatalf("BackfillProbeHourlyRollups second run error = %v", err)
+	}
+
+	var sundayRollups []structs.ProbeHourlyRollup
+	if err := db.Where("service_id = ? AND hour_of_week = ?", service.ID, hourOfWeek(sundayNoonBucket)).
+		Order("bucket_start ASC").
+		Find(&sundayRollups).Error; err != nil {
+		t.Fatalf("load Sunday noon rollups: %v", err)
+	}
+	if len(sundayRollups) != 2 {
+		t.Fatalf("Sunday noon rollup count = %d, want 2 buckets across weeks", len(sundayRollups))
+	}
+	if sundayRollups[0].TotalCount != 3 || sundayRollups[0].FailureCount != 1 {
+		t.Fatalf("first Sunday rollup counts = %d/%d, want total 3 failures 1", sundayRollups[0].TotalCount, sundayRollups[0].FailureCount)
+	}
+	if sundayRollups[1].TotalCount != 2 || sundayRollups[1].FailureCount != 1 {
+		t.Fatalf("second Sunday rollup counts = %d/%d, want total 2 failures 1", sundayRollups[1].TotalCount, sundayRollups[1].FailureCount)
+	}
+
+	if err := store.refreshServiceBaselines(ctx, service.ID, createdAt, end); err != nil {
+		t.Fatalf("refreshServiceBaselines error = %v", err)
+	}
+
+	baseline, err := store.GetBaselineForServiceHour(ctx, service.ID, hourOfWeek(sundayNoonBucket))
+	if err != nil {
+		t.Fatalf("GetBaselineForServiceHour error = %v", err)
+	}
+	if baseline == nil {
+		t.Fatalf("missing Sunday noon baseline")
+	}
+	if baseline.ProbeFailureSamples != 5 {
+		t.Fatalf("ProbeFailureSamples = %d, want raw fixture total 5", baseline.ProbeFailureSamples)
+	}
+	wantFailureRate := 2.0 / 5.0
+	if math.Abs(baseline.ProbeFailureRate-wantFailureRate) > 0.000001 {
+		t.Fatalf("ProbeFailureRate = %.6f, want %.6f", baseline.ProbeFailureRate, wantFailureRate)
+	}
+	if baseline.ProbeLatencySamples != 2 {
+		t.Fatalf("ProbeLatencySamples = %d, want success latency sample count 2", baseline.ProbeLatencySamples)
+	}
+	if baseline.ProbeLatencyMedianMs != 0 {
+		t.Fatalf("ProbeLatencyMedianMs = %.2f, want 0 after rollup switch", baseline.ProbeLatencyMedianMs)
+	}
+}
+
+func TestRefreshServiceBaselinesExcludesIncompleteRollupBucket(t *testing.T) {
+	store, db := newProbeIntegrationStore(t)
+	ctx := context.Background()
+
+	service := createProbeTestService(t, db)
+	createdAt := time.Date(2026, time.January, 10, 11, 0, 0, 0, time.UTC)
+	if err := db.Model(&service).Updates(map[string]any{
+		"created_at": createdAt,
+		"updated_at": createdAt,
+	}).Error; err != nil {
+		t.Fatalf("set service created_at: %v", err)
+	}
+
+	completeBucketStart := time.Date(2026, time.January, 10, 11, 0, 0, 0, time.UTC)
+	incompleteBucketStart := time.Date(2026, time.January, 10, 12, 0, 0, 0, time.UTC)
+	rollups := []structs.ProbeHourlyRollup{
+		{
+			ServiceID:    service.ID,
+			BucketStart:  completeBucketStart,
+			HourOfWeek:   hourOfWeek(completeBucketStart),
+			TotalCount:   10,
+			FailureCount: 1,
+			CreatedAt:    completeBucketStart,
+			UpdatedAt:    completeBucketStart,
+		},
+		{
+			ServiceID:    service.ID,
+			BucketStart:  incompleteBucketStart,
+			HourOfWeek:   hourOfWeek(incompleteBucketStart),
+			TotalCount:   10,
+			FailureCount: 10,
+			CreatedAt:    incompleteBucketStart,
+			UpdatedAt:    incompleteBucketStart,
+		},
+	}
+	if err := db.Create(&rollups).Error; err != nil {
+		t.Fatalf("create rollups: %v", err)
+	}
+
+	now := time.Date(2026, time.January, 10, 12, 55, 0, 0, time.UTC)
+	if err := store.refreshServiceBaselines(ctx, service.ID, createdAt, now); err != nil {
+		t.Fatalf("refreshServiceBaselines error = %v", err)
+	}
+
+	completeBaseline, err := store.GetBaselineForServiceHour(ctx, service.ID, hourOfWeek(completeBucketStart))
+	if err != nil {
+		t.Fatalf("GetBaselineForServiceHour complete bucket error = %v", err)
+	}
+	if completeBaseline == nil || completeBaseline.ProbeFailureSamples != 10 {
+		t.Fatalf("complete bucket baseline = %+v, want 10 probe samples", completeBaseline)
+	}
+
+	incompleteBaseline, err := store.GetBaselineForServiceHour(ctx, service.ID, hourOfWeek(incompleteBucketStart))
+	if err != nil {
+		t.Fatalf("GetBaselineForServiceHour incomplete bucket error = %v", err)
+	}
+	if incompleteBaseline == nil {
+		t.Fatal("missing incomplete hour report baseline")
+	}
+	if incompleteBaseline.ProbeFailureSamples != 0 || incompleteBaseline.ProbeFailureRate != 0 {
+		t.Fatalf("incomplete bucket probe baseline = samples %d rate %.4f, want zero probe signal", incompleteBaseline.ProbeFailureSamples, incompleteBaseline.ProbeFailureRate)
 	}
 }
 
@@ -326,4 +536,8 @@ func leaseProbeConfig(t *testing.T, db *gorm.DB, configID uint, token string, ch
 		}).Error; err != nil {
 		t.Fatalf("lease probe config: %v", err)
 	}
+}
+
+func probeIntPtr(v int) *int {
+	return &v
 }
