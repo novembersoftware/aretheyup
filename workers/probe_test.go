@@ -24,7 +24,15 @@ type fakeProbeStore struct {
 		result    structs.ProbeResult
 		checkedAt time.Time
 	}
-	deleteCutoffs []time.Time
+	cleanupCalls []struct {
+		successCutoff time.Time
+		failureCutoff time.Time
+		batchSize     int
+		maxBatches    int
+	}
+	deleteRows    []int64
+	deleteBatches []int
+	vacuumCalls   int
 }
 
 func (s *fakeProbeStore) ClaimDueProbeConfigs(_ context.Context, _ time.Time, _ int) ([]structs.ProbeConfig, error) {
@@ -56,11 +64,39 @@ func (s *fakeProbeStore) CompleteProbeLease(_ context.Context, configID uint, le
 	return nil
 }
 
-func (s *fakeProbeStore) DeleteProbeResultsOlderThan(_ context.Context, cutoff time.Time) (int64, error) {
+func (s *fakeProbeStore) DeleteExpiredRawProbeResults(_ context.Context, successCutoff, failureCutoff time.Time, batchSize, maxBatches int) (int64, int, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	s.deleteCutoffs = append(s.deleteCutoffs, cutoff)
-	return 3, nil
+	s.cleanupCalls = append(s.cleanupCalls, struct {
+		successCutoff time.Time
+		failureCutoff time.Time
+		batchSize     int
+		maxBatches    int
+	}{
+		successCutoff: successCutoff,
+		failureCutoff: failureCutoff,
+		batchSize:     batchSize,
+		maxBatches:    maxBatches,
+	})
+
+	callIndex := len(s.cleanupCalls) - 1
+	deleted := int64(3)
+	if callIndex < len(s.deleteRows) {
+		deleted = s.deleteRows[callIndex]
+	}
+	batches := 1
+	if callIndex < len(s.deleteBatches) {
+		batches = s.deleteBatches[callIndex]
+	}
+
+	return deleted, batches, nil
+}
+
+func (s *fakeProbeStore) VacuumAnalyzeProbeResults(_ context.Context) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.vacuumCalls++
+	return nil
 }
 
 type fakeProbeExecutor struct {
@@ -369,11 +405,39 @@ func TestCleanupOldProbeResults(t *testing.T) {
 		t.Fatalf("cleanupOldProbeResults() error = %v", err)
 	}
 
-	if len(store.deleteCutoffs) != 1 {
-		t.Fatalf("len(deleteCutoffs) = %d, want 1", len(store.deleteCutoffs))
+	if len(store.cleanupCalls) != 1 {
+		t.Fatalf("len(cleanupCalls) = %d, want 1", len(store.cleanupCalls))
 	}
-	if want := now.Add(-probeRawRetention); !store.deleteCutoffs[0].Equal(want) {
-		t.Fatalf("cleanup cutoff = %s, want %s", store.deleteCutoffs[0], want)
+	call := store.cleanupCalls[0]
+	if want := now.Add(-probeRawSuccessRetention); !call.successCutoff.Equal(want) {
+		t.Fatalf("success cutoff = %s, want %s", call.successCutoff, want)
+	}
+	if want := now.Add(-probeRawFailureRetention); !call.failureCutoff.Equal(want) {
+		t.Fatalf("failure cutoff = %s, want %s", call.failureCutoff, want)
+	}
+	if call.batchSize != probeCleanupBatchSize {
+		t.Fatalf("batch size = %d, want %d", call.batchSize, probeCleanupBatchSize)
+	}
+	if call.maxBatches != probeCleanupMaxBatches {
+		t.Fatalf("max batches = %d, want %d", call.maxBatches, probeCleanupMaxBatches)
+	}
+	if store.vacuumCalls != 0 {
+		t.Fatalf("vacuum calls = %d, want 0", store.vacuumCalls)
+	}
+}
+
+func TestCleanupOldProbeResultsVacuumsAfterLargePurge(t *testing.T) {
+	store := &fakeProbeStore{
+		deleteRows: []int64{probeCleanupVacuumThreshold},
+	}
+	now := time.Date(2026, time.January, 10, 12, 0, 0, 0, time.UTC)
+
+	if err := cleanupOldProbeResults(context.Background(), store, now); err != nil {
+		t.Fatalf("cleanupOldProbeResults() error = %v", err)
+	}
+
+	if store.vacuumCalls != 1 {
+		t.Fatalf("vacuum calls = %d, want 1", store.vacuumCalls)
 	}
 }
 
@@ -386,7 +450,7 @@ func TestRunProbeWorkerReturnsOnCanceledContext(t *testing.T) {
 	if err != nil && !errors.Is(err, context.Canceled) {
 		t.Fatalf("runProbeWorker() error = %v, want nil or context.Canceled", err)
 	}
-	if len(store.deleteCutoffs) != 0 {
-		t.Fatalf("runProbeWorker() cleaned old probe results %d times, want 0", len(store.deleteCutoffs))
+	if len(store.cleanupCalls) != 0 {
+		t.Fatalf("runProbeWorker() cleaned old probe results %d times, want 0", len(store.cleanupCalls))
 	}
 }

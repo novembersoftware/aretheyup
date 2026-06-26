@@ -20,6 +20,14 @@ func TestHotStatusIndexes(t *testing.T) {
 			statement: "CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_probe_results_created_at ON probe_results (created_at)",
 		},
 		{
+			name:      "idx_probe_results_success_cleanup_created_id",
+			statement: "CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_probe_results_success_cleanup_created_id ON probe_results (created_at ASC, id ASC) WHERE success = true",
+		},
+		{
+			name:      "idx_probe_results_failure_cleanup_created_id",
+			statement: "CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_probe_results_failure_cleanup_created_id ON probe_results (created_at ASC, id ASC) WHERE success = false",
+		},
+		{
 			name:      "idx_probe_recent_results_service_checked_id_desc",
 			statement: "CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_probe_recent_results_service_checked_id_desc ON probe_recent_results (service_id, checked_at DESC, id DESC)",
 		},

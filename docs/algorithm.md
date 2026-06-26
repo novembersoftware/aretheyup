@@ -136,9 +136,10 @@ Recent probe inputs are produced by the separate `probe` runtime mode.
 
 - `workers/probe.go` claims due enabled probe configs for active services
 - each run writes one `probe_results` row with status code, latency, and normalized failure type
+- each completed probe also writes `probe_recent_results`, which is capped at the latest 50 rows per service for UI and debugging history
 - each completed probe also updates the service's current UTC hourly rollup in `probe_hourly_rollups`
-- request-time probe summaries read the latest rows through `storage.GetRecentProbeStats` and `storage.GetProbeServiceDetail`
-- raw probe history is retained for 30 days before worker-mode cleanup
+- request-time probe summaries read the latest capped rows through `storage.GetRecentProbeStats` and `storage.GetProbeServiceDetail`
+- raw success rows are retained for 24 hours, raw failure rows are retained for 14 days, and worker-mode cleanup deletes expired raw rows in batches
 
 Failure-type normalization is implemented in `workers/probe_failure.go` and `structs/probe_failure.go`.
 
@@ -169,7 +170,7 @@ Hourly rollup buckets retain success-only latency sums, counts, minimums, and ma
 
 If probe rollup tables are unavailable, report baselines still continue and probe data simply behaves like no probe signal.
 
-The raw `probe_results` table is still used for ingestion, recent read models, cleanup, and one-time rollup backfills.
+The raw `probe_results` table is still used for ingestion, cleanup, and one-time rollup backfills. Recent UI/debug history comes from `probe_recent_results`, so raw success retention can stay short without removing the latest per-service samples.
 
 Backfill command:
 
@@ -177,7 +178,7 @@ Backfill command:
 aretheyup backfill-probe-rollups --start 2026-01-01T00:00:00Z --end 2026-02-01T00:00:00Z
 ```
 
-The backfill is idempotent: conflicting hourly buckets are replaced with aggregates calculated from raw rows.
+The backfill is idempotent: conflicting hourly buckets are replaced with aggregates calculated from raw rows. Run any historical rollup backfill before enabling raw retention cleanup. After cleanup removes raw success rows, raw history is no longer complete enough to rebuild older rollup windows accurately.
 
 Median latency is intentionally omitted from refresh work unless it becomes product-critical.
 

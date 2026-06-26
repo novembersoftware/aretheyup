@@ -391,6 +391,157 @@ func TestCompleteProbeLeaseCapsRecentHistoryAndStateWindow(t *testing.T) {
 	}
 }
 
+func TestDeleteExpiredRawProbeResultsAppliesRetentionPolicy(t *testing.T) {
+	store, db := newProbeIntegrationStore(t)
+	ctx := context.Background()
+	now := time.Date(2026, time.January, 20, 12, 0, 0, 0, time.UTC)
+
+	service := createProbeTestService(t, db)
+	successCutoff := now.Add(-24 * time.Hour)
+	failureCutoff := now.Add(-14 * 24 * time.Hour)
+	rawRows := []structs.ProbeResult{
+		{
+			ServiceID: service.ID,
+			Region:    "global",
+			Success:   true,
+			CreatedAt: successCutoff.Add(-time.Minute),
+			UpdatedAt: successCutoff.Add(-time.Minute),
+		},
+		{
+			ServiceID: service.ID,
+			Region:    "global",
+			Success:   true,
+			CreatedAt: successCutoff.Add(time.Minute),
+			UpdatedAt: successCutoff.Add(time.Minute),
+		},
+		{
+			ServiceID:    service.ID,
+			Region:       "global",
+			Success:      false,
+			FailureType:  structs.ProbeFailureTypeHTTPStatus,
+			ErrorMessage: "unexpected status: got 503 want 200",
+			CreatedAt:    failureCutoff.Add(time.Minute),
+			UpdatedAt:    failureCutoff.Add(time.Minute),
+		},
+		{
+			ServiceID:    service.ID,
+			Region:       "global",
+			Success:      false,
+			FailureType:  structs.ProbeFailureTypeConnect,
+			ErrorMessage: "connect: connection refused",
+			CreatedAt:    failureCutoff.Add(-time.Minute),
+			UpdatedAt:    failureCutoff.Add(-time.Minute),
+		},
+	}
+	if err := db.Create(&rawRows).Error; err != nil {
+		t.Fatalf("create raw probe rows: %v", err)
+	}
+
+	recentRows := []structs.ProbeRecentResult{
+		{
+			ServiceID: service.ID,
+			CheckedAt: successCutoff.Add(-time.Minute),
+			Success:   true,
+			CreatedAt: successCutoff.Add(-time.Minute),
+			UpdatedAt: successCutoff.Add(-time.Minute),
+		},
+		{
+			ServiceID:   service.ID,
+			CheckedAt:   failureCutoff.Add(-time.Minute),
+			Success:     false,
+			FailureType: structs.ProbeFailureTypeConnect,
+			CreatedAt:   failureCutoff.Add(-time.Minute),
+			UpdatedAt:   failureCutoff.Add(-time.Minute),
+		},
+	}
+	if err := db.Create(&recentRows).Error; err != nil {
+		t.Fatalf("create recent probe rows: %v", err)
+	}
+
+	deleted, batches, err := store.DeleteExpiredRawProbeResults(ctx, successCutoff, failureCutoff, 100, 10)
+	if err != nil {
+		t.Fatalf("DeleteExpiredRawProbeResults error = %v", err)
+	}
+	if deleted != 2 || batches != 2 {
+		t.Fatalf("DeleteExpiredRawProbeResults = deleted %d batches %d, want 2/2", deleted, batches)
+	}
+
+	var remaining []structs.ProbeResult
+	if err := db.Where("service_id = ?", service.ID).Order("id ASC").Find(&remaining).Error; err != nil {
+		t.Fatalf("load remaining raw probe rows: %v", err)
+	}
+	remainingIDs := map[uint]bool{}
+	for _, row := range remaining {
+		remainingIDs[row.ID] = true
+	}
+	if remainingIDs[rawRows[0].ID] {
+		t.Fatalf("expired success row was retained")
+	}
+	if !remainingIDs[rawRows[1].ID] {
+		t.Fatalf("recent success row was deleted")
+	}
+	if !remainingIDs[rawRows[2].ID] {
+		t.Fatalf("failure younger than retention was deleted")
+	}
+	if remainingIDs[rawRows[3].ID] {
+		t.Fatalf("expired failure row was retained")
+	}
+
+	var recentCount int64
+	if err := db.Model(&structs.ProbeRecentResult{}).Where("service_id = ?", service.ID).Count(&recentCount).Error; err != nil {
+		t.Fatalf("count recent probe rows: %v", err)
+	}
+	if recentCount != int64(len(recentRows)) {
+		t.Fatalf("recent probe row count = %d, want %d", recentCount, len(recentRows))
+	}
+}
+
+func TestDeleteExpiredRawProbeResultsHonorsBatchLimits(t *testing.T) {
+	store, db := newProbeIntegrationStore(t)
+	ctx := context.Background()
+	now := time.Date(2026, time.January, 20, 12, 0, 0, 0, time.UTC)
+
+	service := createProbeTestService(t, db)
+	successCutoff := now.Add(-24 * time.Hour)
+	failureCutoff := now.Add(-14 * 24 * time.Hour)
+	rawRows := make([]structs.ProbeResult, 0, 5)
+	for i := 0; i < 5; i++ {
+		createdAt := successCutoff.Add(-time.Duration(i+1) * time.Minute)
+		rawRows = append(rawRows, structs.ProbeResult{
+			ServiceID: service.ID,
+			Region:    "global",
+			Success:   true,
+			CreatedAt: createdAt,
+			UpdatedAt: createdAt,
+		})
+	}
+	if err := db.Create(&rawRows).Error; err != nil {
+		t.Fatalf("create raw probe rows: %v", err)
+	}
+
+	deleted, batches, err := store.DeleteExpiredRawProbeResults(ctx, successCutoff, failureCutoff, 2, 1)
+	if err != nil {
+		t.Fatalf("DeleteExpiredRawProbeResults first call error = %v", err)
+	}
+	if deleted != 2 || batches != 1 {
+		t.Fatalf("first DeleteExpiredRawProbeResults = deleted %d batches %d, want 2/1", deleted, batches)
+	}
+	if remaining := countExpiredRawProbeResults(t, db, service.ID, successCutoff, failureCutoff); remaining != 3 {
+		t.Fatalf("expired raw rows after first call = %d, want 3", remaining)
+	}
+
+	deleted, batches, err = store.DeleteExpiredRawProbeResults(ctx, successCutoff, failureCutoff, 2, 1)
+	if err != nil {
+		t.Fatalf("DeleteExpiredRawProbeResults second call error = %v", err)
+	}
+	if deleted != 2 || batches != 1 {
+		t.Fatalf("second DeleteExpiredRawProbeResults = deleted %d batches %d, want 2/1", deleted, batches)
+	}
+	if remaining := countExpiredRawProbeResults(t, db, service.ID, successCutoff, failureCutoff); remaining != 1 {
+		t.Fatalf("expired raw rows after second call = %d, want 1", remaining)
+	}
+}
+
 func TestGetRecentProbeStatsForServicesReadsState(t *testing.T) {
 	store, db := newProbeIntegrationStore(t)
 	ctx := context.Background()
@@ -540,4 +691,18 @@ func leaseProbeConfig(t *testing.T, db *gorm.DB, configID uint, token string, ch
 
 func probeIntPtr(v int) *int {
 	return &v
+}
+
+func countExpiredRawProbeResults(t *testing.T, db *gorm.DB, serviceID uint, successCutoff, failureCutoff time.Time) int64 {
+	t.Helper()
+
+	var count int64
+	err := db.Model(&structs.ProbeResult{}).
+		Where("service_id = ?", serviceID).
+		Where("(success = true AND created_at < ?) OR (success = false AND created_at < ?)", successCutoff, failureCutoff).
+		Count(&count).Error
+	if err != nil {
+		t.Fatalf("count expired raw probe results: %v", err)
+	}
+	return count
 }

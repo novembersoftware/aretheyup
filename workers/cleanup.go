@@ -2,6 +2,7 @@ package workers
 
 import (
 	"context"
+	"fmt"
 	"time"
 
 	"github.com/novembersoftware/aretheyup/storage"
@@ -9,12 +10,17 @@ import (
 )
 
 const (
-	probeCleanupInterval = time.Hour
-	probeRawRetention    = 30 * 24 * time.Hour
+	probeCleanupInterval        = time.Hour
+	probeRawSuccessRetention    = 24 * time.Hour
+	probeRawFailureRetention    = 14 * 24 * time.Hour
+	probeCleanupBatchSize       = 5000
+	probeCleanupMaxBatches      = 100
+	probeCleanupVacuumThreshold = 50000
 )
 
 type probeCleanupStore interface {
-	DeleteProbeResultsOlderThan(ctx context.Context, cutoff time.Time) (int64, error)
+	DeleteExpiredRawProbeResults(ctx context.Context, successCutoff, failureCutoff time.Time, batchSize, maxBatches int) (int64, int, error)
+	VacuumAnalyzeProbeResults(ctx context.Context) error
 }
 
 func StartProbeResultCleaner(store *storage.Storage) {
@@ -42,14 +48,39 @@ func StartProbeResultCleaner(store *storage.Storage) {
 }
 
 func cleanupOldProbeResults(ctx context.Context, store probeCleanupStore, now time.Time) error {
-	cutoff := now.Add(-probeRawRetention)
-	deleted, err := store.DeleteProbeResultsOlderThan(ctx, cutoff)
+	now = now.UTC()
+	successCutoff := now.Add(-probeRawSuccessRetention)
+	failureCutoff := now.Add(-probeRawFailureRetention)
+
+	deleted, batches, err := store.DeleteExpiredRawProbeResults(
+		ctx,
+		successCutoff,
+		failureCutoff,
+		probeCleanupBatchSize,
+		probeCleanupMaxBatches,
+	)
 	if err != nil {
 		return err
 	}
-	if deleted > 0 {
-		log.Info().Int64("deleted", deleted).Time("cutoff", cutoff).Msg("Deleted expired probe results")
+
+	vacuumed := false
+	if deleted >= probeCleanupVacuumThreshold {
+		if err := store.VacuumAnalyzeProbeResults(ctx); err != nil {
+			return fmt.Errorf("vacuum analyze probe_results: %w", err)
+		}
+		vacuumed = true
 	}
+
+	log.Info().
+		Time("success_cutoff", successCutoff).
+		Time("failure_cutoff", failureCutoff).
+		Int("batch_size", probeCleanupBatchSize).
+		Int("max_batches", probeCleanupMaxBatches).
+		Int("batches", batches).
+		Int64("deleted", deleted).
+		Int("vacuum_threshold", probeCleanupVacuumThreshold).
+		Bool("vacuumed", vacuumed).
+		Msg("Cleaned expired raw probe results")
 
 	return nil
 }
