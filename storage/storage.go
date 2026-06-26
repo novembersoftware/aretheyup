@@ -2,20 +2,14 @@ package storage
 
 import (
 	"context"
-	"encoding/json"
-	"errors"
-	"fmt"
 	"time"
 
 	"github.com/novembersoftware/aretheyup/algorithm"
 	"github.com/novembersoftware/aretheyup/structs"
 	r "github.com/redis/go-redis/v9"
-	"github.com/rs/zerolog/log"
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
 )
-
-const listServicesCacheTTL = 10 * time.Second
 
 // Storage is the data access layer. It holds connections to all backing stores
 // and exposes methods for every data operation
@@ -50,15 +44,6 @@ type SitemapServiceRow struct {
 
 // ListServices returns services ordered by recent report count (descending).
 func (s *Storage) ListServices(ctx context.Context, limit, offset int) ([]ServiceRow, error) {
-	cacheKey := ""
-	shouldUseCache := limit == 49 && offset == 0
-	if shouldUseCache {
-		cacheKey = listServicesCacheKey(limit, offset)
-		if cached, ok := s.getCachedServiceRows(ctx, cacheKey); ok {
-			return cached, nil
-		}
-	}
-
 	var rows []ServiceRow
 	// Keep this in sync with the algorithm's report window.
 	reportWindowStart := time.Now().Add(-algorithm.ReportWindow)
@@ -75,10 +60,6 @@ func (s *Storage) ListServices(ctx context.Context, limit, offset int) ([]Servic
 	`, reportWindowStart, limit, offset).Scan(&rows)
 	if result.Error != nil {
 		return rows, result.Error
-	}
-
-	if shouldUseCache {
-		s.setCachedServiceRows(ctx, cacheKey, rows)
 	}
 
 	return rows, nil
@@ -127,7 +108,7 @@ func (s *Storage) CreateUserReport(ctx context.Context, report *structs.UserRepo
 		return err
 	}
 
-	s.invalidateServiceListCache(ctx)
+	s.invalidateServiceCachesByID(ctx, report.ServiceID)
 	return nil
 }
 
@@ -192,7 +173,7 @@ func (s *Storage) GetServiceByID(ctx context.Context, id uint) (*structs.Service
 
 // CreateService inserts a new service record and returns the created service.
 func (s *Storage) CreateService(ctx context.Context, service *structs.Service) error {
-	return s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+	err := s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		if err := tx.Create(service).Error; err != nil {
 			return err
 		}
@@ -203,25 +184,47 @@ func (s *Storage) CreateService(ctx context.Context, service *structs.Service) e
 			DoNothing: true,
 		}).Create(&cfg).Error
 	})
+	if err != nil {
+		return err
+	}
+
+	s.InvalidateServiceCaches(ctx, service.Slug)
+	return nil
 }
 
 // UpdateService saves all fields of an existing service (must have a valid ID).
 func (s *Storage) UpdateService(ctx context.Context, service *structs.Service) error {
+	var existing structs.Service
+	if err := s.db.WithContext(ctx).
+		Model(&structs.Service{}).
+		Select("slug").
+		Where("id = ?", service.ID).
+		First(&existing).Error; err != nil {
+		return err
+	}
+
 	if err := s.db.WithContext(ctx).Save(service).Error; err != nil {
 		return err
 	}
 
-	s.invalidateServiceListCache(ctx)
+	s.InvalidateServiceCaches(ctx, existing.Slug, service.Slug)
 	return nil
 }
 
 // DeleteService removes a service by its primary key.
 func (s *Storage) DeleteService(ctx context.Context, id uint) error {
+	var service structs.Service
+	_ = s.db.WithContext(ctx).
+		Model(&structs.Service{}).
+		Select("slug").
+		Where("id = ?", id).
+		First(&service).Error
+
 	if err := s.db.WithContext(ctx).Delete(&structs.Service{}, id).Error; err != nil {
 		return err
 	}
 
-	s.invalidateServiceListCache(ctx)
+	s.InvalidateServiceCaches(ctx, service.Slug)
 	return nil
 }
 
@@ -245,7 +248,7 @@ func (s *Storage) UpsertProbeConfig(ctx context.Context, pc *structs.ProbeConfig
 		if pc.NextRunAt.IsZero() {
 			pc.NextRunAt = initialProbeRunAt(pc.ServiceID, now)
 		}
-		return s.db.WithContext(ctx).Clauses(clause.OnConflict{
+		err := s.db.WithContext(ctx).Clauses(clause.OnConflict{
 			Columns: []clause.Column{{Name: "service_id"}},
 			DoUpdates: clause.Assignments(map[string]any{
 				"enabled":          pc.Enabled,
@@ -257,6 +260,12 @@ func (s *Storage) UpsertProbeConfig(ctx context.Context, pc *structs.ProbeConfig
 				"updated_at":       now,
 			}),
 		}).Create(pc).Error
+		if err != nil {
+			return err
+		}
+
+		s.invalidateServiceCachesByID(ctx, pc.ServiceID)
+		return nil
 	}
 
 	updates := map[string]any{
@@ -272,61 +281,14 @@ func (s *Storage) UpsertProbeConfig(ctx context.Context, pc *structs.ProbeConfig
 		updates["lease_expires_at"] = nil
 	}
 
-	return s.db.WithContext(ctx).
+	err := s.db.WithContext(ctx).
 		Model(&structs.ProbeConfig{}).
 		Where("id = ?", pc.ID).
 		Updates(updates).Error
-}
-
-func (s *Storage) getCachedServiceRows(ctx context.Context, key string) ([]ServiceRow, bool) {
-	if s.redis == nil {
-		return nil, false
-	}
-
-	payload, err := s.redis.Get(ctx, key).Bytes()
 	if err != nil {
-		if !errors.Is(err, r.Nil) {
-			log.Debug().Err(err).Str("cache_key", key).Msg("Failed to read list cache")
-		}
-		return nil, false
+		return err
 	}
 
-	var rows []ServiceRow
-	if err := json.Unmarshal(payload, &rows); err != nil {
-		log.Debug().Err(err).Str("cache_key", key).Msg("Failed to decode list cache")
-		_ = s.redis.Del(ctx, key).Err()
-		return nil, false
-	}
-
-	return rows, true
-}
-
-func (s *Storage) setCachedServiceRows(ctx context.Context, key string, rows []ServiceRow) {
-	if s.redis == nil {
-		return
-	}
-
-	payload, err := json.Marshal(rows)
-	if err != nil {
-		log.Debug().Err(err).Str("cache_key", key).Msg("Failed to encode list cache")
-		return
-	}
-
-	if err := s.redis.Set(ctx, key, payload, listServicesCacheTTL).Err(); err != nil {
-		log.Debug().Err(err).Str("cache_key", key).Msg("Failed to write list cache")
-	}
-}
-
-func (s *Storage) invalidateServiceListCache(ctx context.Context) {
-	if s.redis == nil {
-		return
-	}
-
-	if err := s.redis.Del(ctx, listServicesCacheKey(49, 0)).Err(); err != nil {
-		log.Debug().Err(err).Str("cache_key", listServicesCacheKey(49, 0)).Msg("Failed to invalidate list cache")
-	}
-}
-
-func listServicesCacheKey(limit, offset int) string {
-	return fmt.Sprintf("services:list:v2:limit:%d:offset:%d", limit, offset)
+	s.invalidateServiceCachesByID(ctx, pc.ServiceID)
+	return nil
 }

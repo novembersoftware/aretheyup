@@ -162,7 +162,8 @@ func (s *Storage) ClaimDueProbeConfigs(ctx context.Context, now time.Time, limit
 }
 
 func (s *Storage) CompleteProbeLease(ctx context.Context, configID uint, leaseToken string, result structs.ProbeResult, checkedAt time.Time) error {
-	return s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+	var serviceID uint
+	err := s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		var config structs.ProbeConfig
 		if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).
 			Where("id = ? AND lease_token = ? AND lease_expires_at IS NOT NULL AND lease_expires_at > ?", configID, leaseToken, checkedAt).
@@ -193,8 +194,19 @@ func (s *Storage) CompleteProbeLease(ctx context.Context, configID uint, leaseTo
 		result.ServiceID = config.ServiceID
 		result.CreatedAt = checkedAt
 		result.UpdatedAt = checkedAt
-		return tx.Create(&result).Error
+		if err := tx.Create(&result).Error; err != nil {
+			return err
+		}
+
+		serviceID = config.ServiceID
+		return nil
 	})
+	if err != nil {
+		return err
+	}
+
+	s.invalidateServiceCachesByID(ctx, serviceID)
+	return nil
 }
 
 func (s *Storage) DeleteProbeResultsOlderThan(ctx context.Context, cutoff time.Time) (int64, error) {

@@ -166,7 +166,7 @@ func (s *Storage) SubmitService(ctx context.Context, input SubmitServiceInput) (
 		return nil, err
 	}
 
-	s.invalidateServiceListCache(ctx)
+	s.InvalidateServiceCaches(ctx, result.Service.Slug)
 	return result, nil
 }
 

@@ -108,6 +108,9 @@ func (s *Storage) OpenIncidentIfNoneActive(ctx context.Context, serviceID uint, 
 		return false, err
 	}
 
+	if created {
+		s.invalidateServiceCachesByID(ctx, serviceID)
+	}
 	return created, nil
 }
 
@@ -121,5 +124,9 @@ func (s *Storage) ResolveActiveIncident(ctx context.Context, serviceID uint, res
 		return false, result.Error
 	}
 
-	return result.RowsAffected > 0, nil
+	resolved := result.RowsAffected > 0
+	if resolved {
+		s.invalidateServiceCachesByID(ctx, serviceID)
+	}
+	return resolved, nil
 }

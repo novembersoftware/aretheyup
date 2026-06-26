@@ -1,6 +1,8 @@
 package routes
 
 import (
+	"context"
+	"errors"
 	"fmt"
 	"math"
 	"strconv"
@@ -13,6 +15,7 @@ import (
 	"github.com/novembersoftware/aretheyup/storage"
 	"github.com/novembersoftware/aretheyup/structs"
 	"github.com/novembersoftware/aretheyup/utils"
+	"gorm.io/gorm"
 )
 
 const servicesPerPage = 48
@@ -29,15 +32,16 @@ func getServices(c *gin.Context, store *storage.Storage) {
 	}
 
 	offset := (page - 1) * servicesPerPage
-	rows, err := store.ListServices(c.Request.Context(), servicesPerPage+1, offset)
-	if err != nil {
-		utils.Respond(c, 500, "error", gin.H{"error": "Failed to fetch services"})
+	limit := servicesPerPage + 1
+	if response, ok := store.GetCachedServiceListResponses(c.Request.Context(), limit, offset); ok {
+		respondServiceList(c, response, page)
 		return
 	}
 
-	hasMore := len(rows) > servicesPerPage
-	if hasMore {
-		rows = rows[:servicesPerPage]
+	rows, err := store.ListServices(c.Request.Context(), limit, offset)
+	if err != nil {
+		utils.Respond(c, 500, "error", gin.H{"error": "Failed to fetch services"})
+		return
 	}
 
 	response, err := utils.BuildServiceResponses(c, store, rows)
@@ -46,12 +50,8 @@ func getServices(c *gin.Context, store *storage.Storage) {
 		return
 	}
 
-	utils.Respond(c, 200, "service-list", gin.H{
-		"services": response,
-		"append":   page > 1,
-		"hasMore":  hasMore,
-		"nextPage": page + 1,
-	})
+	store.SetCachedServiceListResponses(c.Request.Context(), limit, offset, response)
+	respondServiceList(c, response, page)
 }
 
 // GET /api/services/search?q=...
@@ -103,22 +103,34 @@ func createServiceReport(c *gin.Context, store *storage.Storage) {
 		return
 	}
 
-	respondServiceCard(c, store, service, true)
+	response, err := buildNeutralServiceDetailResponse(c.Request.Context(), store, service, time.Now().UTC())
+	if err != nil {
+		utils.Respond(c, 500, "error", gin.H{"error": "Failed to load service detail"})
+		return
+	}
+
+	store.SetCachedServiceDetailResponse(c.Request.Context(), service.Slug, response)
+	respondServiceCard(c, store, response, true)
 }
 
 // GET /api/service/:slug
 func getService(c *gin.Context, store *storage.Storage) {
 	slug := c.Param("slug")
 
-	service, err := store.GetServiceBySlug(c.Request.Context(), slug)
+	response, err := getCachedOrBuildServiceDetailResponse(c, store, slug)
 	if err != nil {
-		utils.Respond(c, 404, "service-not-found", gin.H{
-			"error": "Service not found",
-		})
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			utils.Respond(c, 404, "service-not-found", gin.H{
+				"error": "Service not found",
+			})
+			return
+		}
+
+		utils.Respond(c, 500, "error", gin.H{"error": "Failed to load service detail"})
 		return
 	}
 
-	respondServiceCard(c, store, service, false)
+	respondServiceCard(c, store, response, false)
 }
 
 // GET /api/services/count
@@ -133,44 +145,92 @@ func getServiceCount(c *gin.Context, store *storage.Storage) {
 
 // ----- HELPERS -----
 
-// Respond with the service card for a given service
-func respondServiceCard(c *gin.Context, store *storage.Storage, service *structs.Service, reported bool) {
-	ctx := c.Request.Context()
-	now := time.Now().UTC()
+func respondServiceList(c *gin.Context, response []structs.ServiceResponse, page int) {
+	hasMore := len(response) > servicesPerPage
+	if hasMore {
+		response = response[:servicesPerPage]
+	}
 
+	utils.Respond(c, 200, "service-list", gin.H{
+		"services": response,
+		"append":   page > 1,
+		"hasMore":  hasMore,
+		"nextPage": page + 1,
+	})
+}
+
+func getCachedOrBuildServiceDetailResponse(c *gin.Context, store *storage.Storage, slug string) (structs.ServiceDetailResponse, error) {
+	ctx := c.Request.Context()
+	if response, ok := store.GetCachedServiceDetailResponse(ctx, slug); ok {
+		return response, nil
+	}
+
+	service, err := store.GetServiceBySlug(ctx, slug)
+	if err != nil {
+		return structs.ServiceDetailResponse{}, err
+	}
+
+	response, err := buildNeutralServiceDetailResponse(ctx, store, service, time.Now().UTC())
+	if err != nil {
+		return structs.ServiceDetailResponse{}, err
+	}
+
+	store.SetCachedServiceDetailResponse(ctx, slug, response)
+	return response, nil
+}
+
+func reportRateLimitState(c *gin.Context, store *storage.Storage) middleware.ReportRateLimitState {
 	rateLimitState, err := middleware.GetReportRateLimitState(
 		c,
 		store.Redis(),
 		time.Duration(config.C.ReportRateLimitWindowSeconds)*time.Second,
 	)
 	if err != nil {
-		rateLimitState = middleware.ReportRateLimitState{CanReport: true}
+		return middleware.ReportRateLimitState{CanReport: true}
 	}
+
+	return rateLimitState
+}
+
+func mergeServiceDetailRequesterState(response structs.ServiceDetailResponse, rateLimitState middleware.ReportRateLimitState) structs.ServiceDetailResponse {
+	response.CanReport = rateLimitState.CanReport
+	response.ReportRetryAfterSec = rateLimitState.RetryAfterSeconds
+	return response
+}
+
+// Respond with the service card for a given service
+func respondServiceCard(c *gin.Context, store *storage.Storage, response structs.ServiceDetailResponse, reported bool) {
+	response = mergeServiceDetailRequesterState(response, reportRateLimitState(c, store))
+
+	utils.Respond(c, 200, "service-card", gin.H{
+		"service":  response,
+		"reported": reported,
+	})
+}
+
+func buildNeutralServiceDetailResponse(ctx context.Context, store *storage.Storage, service *structs.Service, now time.Time) (structs.ServiceDetailResponse, error) {
+	now = now.UTC()
 
 	reportWindowStart := now.Add(-algorithm.ReportWindow)
 	recentReports, err := store.CountRecentReports(ctx, service.ID, reportWindowStart)
 	if err != nil {
-		utils.Respond(c, 500, "error", gin.H{"error": "Failed to count recent reports"})
-		return
+		return structs.ServiceDetailResponse{}, err
 	}
 
 	hourOfWeek := utils.ToHourOfWeek(now)
 	baseline, err := store.GetBaselineForServiceHour(ctx, service.ID, hourOfWeek)
 	if err != nil {
-		utils.Respond(c, 500, "error", gin.H{"error": "Failed to load baseline"})
-		return
+		return structs.ServiceDetailResponse{}, err
 	}
 
 	recentProbeTotal, recentProbeFailures, err := store.GetRecentProbeStats(ctx, service.ID, algorithm.RecentProbeWindow)
 	if err != nil {
-		utils.Respond(c, 500, "error", gin.H{"error": "Failed to evaluate probe data"})
-		return
+		return structs.ServiceDetailResponse{}, err
 	}
 
 	probeDetail, err := store.GetProbeServiceDetail(ctx, service.ID, 50)
 	if err != nil {
-		utils.Respond(c, 500, "error", gin.H{"error": "Failed to load probe detail"})
-		return
+		return structs.ServiceDetailResponse{}, err
 	}
 
 	status := utils.DetermineStatus(recentReports, baseline, recentProbeTotal, recentProbeFailures)
@@ -179,15 +239,13 @@ func respondServiceCard(c *gin.Context, store *storage.Storage, service *structs
 	histogramSince := now.Truncate(30 * time.Minute).Add(-47 * 30 * time.Minute)
 	reportBuckets, err := store.GetReportBucketsForService(ctx, service.ID, histogramSince, 30*time.Minute)
 	if err != nil {
-		utils.Respond(c, 500, "error", gin.H{"error": "Failed to load report timeline"})
-		return
+		return structs.ServiceDetailResponse{}, err
 	}
 	histogram := utils.BuildReportHistogram(now, reportBuckets, baseline, status)
 
 	regionalCounts, err := store.GetRegionalReportCountsForService(ctx, service.ID, reportWindowStart, 8)
 	if err != nil {
-		utils.Respond(c, 500, "error", gin.H{"error": "Failed to load regional report data"})
-		return
+		return structs.ServiceDetailResponse{}, err
 	}
 	regionalReports := utils.BuildRegionalReportBreakdown(regionalCounts, recentReports)
 
@@ -195,22 +253,19 @@ func respondServiceCard(c *gin.Context, store *storage.Storage, service *structs
 	windowEnd := now
 	windowIncidents, err := store.GetIncidentsOverlappingWindow(ctx, service.ID, windowStartDay, windowEnd)
 	if err != nil {
-		utils.Respond(c, 500, "error", gin.H{"error": "Failed to load uptime history"})
-		return
+		return structs.ServiceDetailResponse{}, err
 	}
 
 	dailyReports, err := store.GetDailyReportCountsForService(ctx, service.ID, windowStartDay)
 	if err != nil {
-		utils.Respond(c, 500, "error", gin.H{"error": "Failed to load report history"})
-		return
+		return structs.ServiceDetailResponse{}, err
 	}
 
 	uptimeDays, uptimePercent, outageDays, elevatedDays := utils.BuildUptimeDays(windowStartDay, 90, windowEnd, windowIncidents, dailyReports, status)
 
 	incidents, err := store.GetRecentIncidentsForService(ctx, service.ID, windowStartDay, 20)
 	if err != nil {
-		utils.Respond(c, 500, "error", gin.H{"error": "Failed to load incident timeline"})
-		return
+		return structs.ServiceDetailResponse{}, err
 	}
 
 	timeline := utils.BuildIncidentTimeline(incidents, now)
@@ -223,7 +278,7 @@ func respondServiceCard(c *gin.Context, store *storage.Storage, service *structs
 	}
 	windowUsage := int(math.Min(100, math.Round((float64(recentReports)/alertThreshold)*100)))
 
-	response := structs.ServiceDetailResponse{
+	return structs.ServiceDetailResponse{
 		ID:                    service.ID,
 		Slug:                  service.Slug,
 		Name:                  service.Name,
@@ -232,8 +287,6 @@ func respondServiceCard(c *gin.Context, store *storage.Storage, service *structs
 		Category:              service.Category,
 		Status:                string(status),
 		RecentReports:         recentReports,
-		CanReport:             rateLimitState.CanReport,
-		ReportRetryAfterSec:   rateLimitState.RetryAfterSeconds,
 		ReportWindowLabel:     fmt.Sprintf("last %d min", int(algorithm.ReportWindow.Minutes())),
 		BaselineMeanReports:   baselineMean,
 		WindowUsagePercent:    windowUsage,
@@ -258,10 +311,5 @@ func respondServiceCard(c *gin.Context, store *storage.Storage, service *structs
 		ProbeLatencyAverageMs: probePresentation.LatencyAverageMs,
 		ProbeLatencyMaxMs:     probePresentation.LatencyMaxMs,
 		ProbeHistory:          probePresentation.History,
-	}
-
-	utils.Respond(c, 200, "service-card", gin.H{
-		"service":  response,
-		"reported": reported,
-	})
+	}, nil
 }
