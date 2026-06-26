@@ -6,6 +6,7 @@ import (
 	"encoding/binary"
 	"encoding/hex"
 	"errors"
+	"fmt"
 	"hash/fnv"
 	"strings"
 	"time"
@@ -238,15 +239,73 @@ func (s *Storage) CompleteProbeLease(ctx context.Context, configID uint, leaseTo
 	return nil
 }
 
-func (s *Storage) DeleteProbeResultsOlderThan(ctx context.Context, cutoff time.Time) (int64, error) {
-	result := s.db.WithContext(ctx).
-		Where("created_at < ?", cutoff).
-		Delete(&structs.ProbeResult{})
-	if result.Error != nil {
-		return 0, result.Error
+func (s *Storage) DeleteExpiredRawProbeResults(ctx context.Context, successCutoff, failureCutoff time.Time, batchSize, maxBatches int) (int64, int, error) {
+	if batchSize <= 0 || maxBatches <= 0 {
+		return 0, 0, nil
 	}
 
-	return result.RowsAffected, nil
+	successCutoff = successCutoff.UTC()
+	failureCutoff = failureCutoff.UTC()
+
+	session := s.db.WithContext(ctx).Session(&gorm.Session{SkipDefaultTransaction: true})
+	successDeleted, successBatches, err := deleteExpiredRawProbeResultBatches(session, true, successCutoff, batchSize, maxBatches)
+	if err != nil {
+		return successDeleted, successBatches, err
+	}
+
+	failureDeleted, failureBatches, err := deleteExpiredRawProbeResultBatches(session, false, failureCutoff, batchSize, maxBatches)
+	if err != nil {
+		return successDeleted + failureDeleted, successBatches + failureBatches, err
+	}
+
+	return successDeleted + failureDeleted, successBatches + failureBatches, nil
+}
+
+func deleteExpiredRawProbeResultBatches(db *gorm.DB, success bool, cutoff time.Time, batchSize, maxBatches int) (int64, int, error) {
+	var totalDeleted int64
+	batches := 0
+	successPredicate := "success = FALSE"
+	if success {
+		successPredicate = "success = TRUE"
+	}
+
+	for batches < maxBatches {
+		result := db.Exec(fmt.Sprintf(`
+			WITH expired AS (
+				SELECT id
+				FROM probe_results
+				WHERE %s
+					AND created_at < ?
+				ORDER BY created_at ASC, id ASC
+				LIMIT ?
+				FOR UPDATE SKIP LOCKED
+			)
+			DELETE FROM probe_results
+			USING expired
+			WHERE probe_results.id = expired.id
+		`, successPredicate), cutoff, batchSize)
+		if result.Error != nil {
+			return totalDeleted, batches, result.Error
+		}
+		if result.RowsAffected == 0 {
+			break
+		}
+
+		totalDeleted += result.RowsAffected
+		batches++
+		if result.RowsAffected < int64(batchSize) {
+			break
+		}
+	}
+
+	return totalDeleted, batches, nil
+}
+
+func (s *Storage) VacuumAnalyzeProbeResults(ctx context.Context) error {
+	return s.db.WithContext(ctx).
+		Session(&gorm.Session{SkipDefaultTransaction: true}).
+		Exec("VACUUM (ANALYZE) probe_results").
+		Error
 }
 
 func (s *Storage) GetProbeServiceDetail(ctx context.Context, serviceID uint, limit int) (ProbeServiceDetail, error) {

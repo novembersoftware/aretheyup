@@ -13,7 +13,7 @@ Core runtime flow:
 5. Worker mode starts recurring database loops:
    - baseline refresh every hour
    - incident reconciliation every minute
-   - raw probe result cleanup every hour
+   - policy-aware raw probe result cleanup every hour
 6. Probe mode runs a separate synthetic worker loop that claims due probe configs and writes `probe_results`.
 
 ## HTTP surface
@@ -70,7 +70,7 @@ The API uses the same algorithm path for both list and detail responses through 
 
 ### Probe result cleaner
 
-`workers/cleanup.go` runs only in `worker` mode. It deletes raw probe rows older than 30 days immediately at startup and then once per hour.
+`workers/cleanup.go` runs only in `worker` mode. It deletes expired raw probe rows immediately at startup and then once per hour, retaining raw successes for 24 hours and raw failures for 14 days. Cleanup deletes successes and failures in separate small-batch scans and only runs `VACUUM (ANALYZE) probe_results` after a large purge. Run any historical rollup backfill before enabling this cleanup, because raw history is incomplete after success rows expire.
 
 ### Synthetic probe worker
 
