@@ -11,11 +11,9 @@ import (
 	"gorm.io/gorm/clause"
 )
 
-func (s *Storage) RefreshServiceStatus(ctx context.Context, serviceID uint, now time.Time) (*structs.ServiceStatus, error) {
-	return s.refreshServiceStatus(ctx, serviceID, now, true)
-}
+const serviceStatusUpsertBatchSize = 500
 
-func (s *Storage) refreshServiceStatus(ctx context.Context, serviceID uint, now time.Time, invalidateCache bool) (*structs.ServiceStatus, error) {
+func (s *Storage) RefreshServiceStatus(ctx context.Context, serviceID uint, now time.Time) (*structs.ServiceStatus, error) {
 	now = now.UTC()
 
 	recentReports, err := s.CountRecentReports(ctx, serviceID, now.Add(-algorithm.ReportWindow))
@@ -35,33 +33,11 @@ func (s *Storage) refreshServiceStatus(ctx context.Context, serviceID uint, now 
 	}
 
 	status := buildServiceStatusSnapshot(serviceID, now, recentReports, baseline, recentProbeTotal, recentProbeFailures)
-	err = s.db.WithContext(ctx).Clauses(clause.OnConflict{
-		Columns: []clause.Column{{Name: "service_id"}},
-		Where: clause.Where{Exprs: []clause.Expression{
-			gorm.Expr("service_statuses.computed_at <= EXCLUDED.computed_at"),
-		}},
-		DoUpdates: clause.AssignmentColumns([]string{
-			"status",
-			"recent_reports",
-			"recent_probe_total",
-			"recent_probe_failures",
-			"baseline_mean_reports",
-			"baseline_std_dev_reports",
-			"baseline_sample_count",
-			"probe_baseline_failure_rate",
-			"probe_baseline_samples",
-			"hour_of_week",
-			"computed_at",
-			"updated_at",
-		}),
-	}).Create(&status).Error
-	if err != nil {
+	if err := s.upsertServiceStatusSnapshots(ctx, []structs.ServiceStatus{status}); err != nil {
 		return nil, err
 	}
 
-	if invalidateCache {
-		s.invalidateServiceCachesByID(ctx, serviceID)
-	}
+	s.invalidateServiceCachesByID(ctx, serviceID)
 	return &status, nil
 }
 
@@ -70,20 +46,55 @@ func (s *Storage) RefreshAllServiceStatuses(ctx context.Context, now time.Time) 
 	if err != nil {
 		return 0, err
 	}
+	return s.RefreshServiceStatuses(ctx, serviceIDs, now)
+}
 
-	refreshed := 0
+func (s *Storage) RefreshServiceStatuses(ctx context.Context, serviceIDs []uint, now time.Time) (int, error) {
+	if len(serviceIDs) == 0 {
+		return 0, nil
+	}
+
+	now = now.UTC()
+	reportCounts, err := s.GetRecentReportCountsForServices(ctx, serviceIDs, now.Add(-algorithm.ReportWindow))
+	if err != nil {
+		return 0, err
+	}
+
+	hourOfWeek := statusHourOfWeek(now)
+	baselines, err := s.GetBaselinesForServicesHour(ctx, serviceIDs, hourOfWeek)
+	if err != nil {
+		return 0, err
+	}
+
+	probeStats, err := s.GetRecentProbeStatsForServices(ctx, serviceIDs, algorithm.RecentProbeWindow)
+	if err != nil {
+		return 0, err
+	}
+
+	statuses := make([]structs.ServiceStatus, 0, len(serviceIDs))
 	for _, serviceID := range serviceIDs {
-		if _, err := s.refreshServiceStatus(ctx, serviceID, now, false); err != nil {
-			return refreshed, err
+		var baseline *structs.ServiceBaseline
+		if value, exists := baselines[serviceID]; exists {
+			baseline = &value
 		}
-		refreshed++
+
+		probe := probeStats[serviceID]
+		statuses = append(statuses, buildServiceStatusSnapshot(
+			serviceID,
+			now,
+			reportCounts[serviceID],
+			baseline,
+			probe.RecentProbeTotal,
+			probe.RecentProbeFailures,
+		))
 	}
 
-	if refreshed > 0 {
-		s.InvalidateServiceCaches(ctx)
+	if err := s.upsertServiceStatusSnapshots(ctx, statuses); err != nil {
+		return 0, err
 	}
 
-	return refreshed, nil
+	s.InvalidateServiceCaches(ctx)
+	return len(statuses), nil
 }
 
 func (s *Storage) GetServiceStatus(ctx context.Context, serviceID uint) (*structs.ServiceStatus, error) {
@@ -108,6 +119,33 @@ func (s *Storage) GetActiveServiceStatuses(ctx context.Context) ([]structs.Servi
 		ORDER BY ss.service_id ASC
 	`).Scan(&statuses).Error
 	return statuses, err
+}
+
+func (s *Storage) upsertServiceStatusSnapshots(ctx context.Context, statuses []structs.ServiceStatus) error {
+	if len(statuses) == 0 {
+		return nil
+	}
+
+	return s.db.WithContext(ctx).Clauses(clause.OnConflict{
+		Columns: []clause.Column{{Name: "service_id"}},
+		Where: clause.Where{Exprs: []clause.Expression{
+			gorm.Expr("service_statuses.computed_at <= EXCLUDED.computed_at"),
+		}},
+		DoUpdates: clause.AssignmentColumns([]string{
+			"status",
+			"recent_reports",
+			"recent_probe_total",
+			"recent_probe_failures",
+			"baseline_mean_reports",
+			"baseline_std_dev_reports",
+			"baseline_sample_count",
+			"probe_baseline_failure_rate",
+			"probe_baseline_samples",
+			"hour_of_week",
+			"computed_at",
+			"updated_at",
+		}),
+	}).CreateInBatches(&statuses, serviceStatusUpsertBatchSize).Error
 }
 
 func buildServiceStatusSnapshot(

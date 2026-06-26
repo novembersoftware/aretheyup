@@ -51,6 +51,10 @@ func main() {
 		backfillProbeRollupsMode(storage.New(db, nil))
 		return
 	}
+	if flags.Mode == utils.ModeBackfillProbeDerived {
+		backfillProbeDerivedMode(storage.New(db, nil))
+		return
+	}
 
 	redis, err := services.NewRedis(config.C.RedisURL)
 	if err != nil {
@@ -102,16 +106,38 @@ func seedMode(db *gorm.DB) {
 }
 
 func backfillProbeRollupsMode(store *storage.Storage) {
-	inserted, err := store.BackfillProbeHourlyRollups(context.Background(), flags.BackfillProbeRollupsStart, flags.BackfillProbeRollupsEnd)
+	result, err := store.BackfillProbeHourlyRollupsChunked(
+		context.Background(),
+		flags.BackfillProbeRollupsStart,
+		flags.BackfillProbeRollupsEnd,
+		flags.BackfillProbeRollupsChunkDuration,
+	)
 	if err != nil {
 		log.Fatal().Err(err).Msg("Failed to backfill probe hourly rollups")
 	}
 
 	log.Info().
-		Int64("rows_affected", inserted).
+		Int64("rows_affected", result.RowsAffected).
+		Int("chunks", result.Chunks).
 		Time("start", flags.BackfillProbeRollupsStart).
 		Time("end", flags.BackfillProbeRollupsEnd).
+		Dur("chunk_duration", flags.BackfillProbeRollupsChunkDuration).
 		Msg("Backfilled probe hourly rollups")
+}
+
+func backfillProbeDerivedMode(store *storage.Storage) {
+	result, err := store.BackfillProbeDerived(context.Background(), flags.BackfillProbeDerivedCutoff, flags.BackfillProbeDerivedServiceBatchSize)
+	if err != nil {
+		log.Fatal().Err(err).Msg("Failed to backfill derived probe tables")
+	}
+
+	log.Info().
+		Time("cutoff", flags.BackfillProbeDerivedCutoff).
+		Int("services_scanned", result.ServicesScanned).
+		Int("service_batches", result.ServiceBatches).
+		Int64("recent_rows_inserted", result.RecentRowsInserted).
+		Int64("state_rows_upserted", result.StateRowsUpserted).
+		Msg("Backfilled derived probe tables")
 }
 
 func workerMode(store *storage.Storage) {

@@ -106,6 +106,27 @@ SELECT COUNT(*) FROM user_reports;
 
 For runtime attribution, check structured logs by `mode` and `job`: API mode emits `list_cache_summary`, probe mode emits `probe_sweep`, and worker mode emits `baseline_refresh`, `incident_reconciliation`, `probe_result_cleanup`, and `table_stats`.
 
+## Snapshot status reads look stale or empty
+
+Snapshot-backed reads require three things:
+
+- `worker` is running and logging status refreshes
+- `service_statuses.computed_at` is fresh for active services
+- the API and incident workers are using the merged snapshot-backed read paths
+
+For existing production data, run the historical backfills before judging snapshot freshness:
+
+```bash
+go run main.go backfill-probe-rollups --start 2026-01-01T00:00:00Z --end 2026-02-01T00:00:00Z --chunk-duration 24h
+go run main.go backfill-probe-derived --cutoff 2026-02-01T00:00:00Z --service-batch-size 500
+```
+
+Use a real fixed cutoff from the rollout window, not the example timestamp above. Implemented in `storage/statuses.go`, `workers/statuses.go`, `storage/probe_rollups.go`, and `storage/probe_derived_backfill.go`.
+
+## Raw probe rows are not being deleted
+
+Worker mode deletes expired raw successes after 24 hours and raw failures after 14 days in batches. Check worker logs for `job=probe_result_cleanup`; a large purge also runs `VACUUM (ANALYZE) probe_results` after cleanup.
+
 ## Client IPs look wrong behind a proxy
 
 If `TRUSTED_PROXIES` is empty or invalid, Gin will not trust forwarded IP headers. Also note that `utils.GetClientIP` prefers `CF-Connecting-IP` when present. Review `api/server.go`, `api/server_test.go`, and `utils/utils.go`.
@@ -128,7 +149,12 @@ Relevant files:
 - `api/server.go`
 - `api/server_test.go`
 - `storage/probes.go`
+- `storage/probe_rollups.go`
+- `storage/probe_derived_backfill.go`
+- `storage/statuses.go`
 - `storage/storage.go`
 - `utils/utils.go`
 - `api/routes/seo.go`
 - `workers/probe.go`
+- `workers/statuses.go`
+- `workers/cleanup.go`

@@ -19,6 +19,7 @@ type Service struct {
 	ProbeState         ServiceProbeState
 	ProbeRecentResults []ProbeRecentResult
 	ProbeHourlyRollups []ProbeHourlyRollup
+	StatusSnapshot     ServiceStatus
 	// One baseline row per hour-of-week bucket for this service
 	Baselines   []ServiceBaseline
 	Incidents   []Incident

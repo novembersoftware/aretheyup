@@ -15,6 +15,9 @@ The config struct is defined in `structs/config.go` and loaded by `config/config
 | `TRUSTED_PROXIES` | optional | Comma-separated proxy CIDRs or IPs trusted for forwarded client IP handling. |
 | `REPORT_RATE_LIMIT_MAX_REQUESTS` | no | Max allowed report submissions per key within the rate-limit window. |
 | `REPORT_RATE_LIMIT_WINDOW_SECONDS` | no | Report rate-limit window length in seconds. |
+| `STATUS_SNAPSHOT_API_READS_ENABLED` | no | Reserved rollout flag loaded for compatibility. Current beta reads service status from `service_statuses`. |
+| `STATUS_SNAPSHOT_INCIDENT_READS_ENABLED` | no | Reserved rollout flag loaded for compatibility. Current beta reconciles incidents from `service_statuses`. |
+| `RAW_PROBE_RETENTION_CLEANUP_ENABLED` | no | Reserved rollout flag loaded for compatibility. Current beta worker mode deletes expired raw probe rows. |
 
 Defaults and sample values live in `.env.example`.
 
@@ -56,6 +59,19 @@ This behavior is covered in `api/server_test.go`.
 
 The CSP is currently report-only, not enforcing.
 
+## Derived Data Rollout
+
+Current beta reads from the derived status tables and runs raw probe cleanup in worker mode. For an existing deployment, run backfills before starting the new worker against historical raw probe data.
+
+Recommended order:
+
+1. Run the probe rollup and derived probe backfills.
+2. Let `worker` refresh `service_statuses`.
+3. Compare response shape, slow queries, cache behavior, `service_statuses.computed_at` freshness, and incident transitions.
+4. Confirm raw cleanup is deleting only rows older than the retention windows.
+
+Rollback is deployment-based: redeploy the previous version while the derived tables continue to be maintained.
+
 ## Container configuration
 
 ### Development
@@ -72,7 +88,7 @@ The CSP is currently report-only, not enforcing.
 - an `app` profile that starts all app containers together
 - a `deps` profile that starts PostgreSQL and Redis
 
-The app services are built from `Dockerfile`. `api` runs `command: ["api"]`, `probe` runs `command: ["probe"]`, and `worker` runs `command: ["worker"]`. The Compose file sets `ENV`, `API_PORT`, `DB_DSN`, `REDIS_URL`, and `ALLOWED_PAGE_ORIGINS`. Set `SITE_BASE_URL` explicitly in real deployments if you need stable canonical and sitemap URLs independent of the inbound host. `robots.txt` omits the sitemap line when `SITE_BASE_URL` is empty. That behavior is implemented in `api/routes/seo.go` and `utils/utils.go`.
+The app services are built from `Dockerfile`. `api` runs `command: ["api"]`, `probe` runs `command: ["probe"]`, and `worker` runs `command: ["worker"]`. The Compose file sets `ENV`, `API_PORT`, `DB_DSN`, `REDIS_URL`, `ALLOWED_PAGE_ORIGINS`, and the rollout gate defaults. Set `SITE_BASE_URL` explicitly in real deployments if you need stable canonical and sitemap URLs independent of the inbound host. `robots.txt` omits the sitemap line when `SITE_BASE_URL` is empty. That behavior is implemented in `api/routes/seo.go` and `utils/utils.go`.
 
 Relevant files:
 

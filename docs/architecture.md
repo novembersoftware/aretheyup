@@ -12,8 +12,10 @@ Core runtime flow:
 4. API mode boots Gin for HTML pages, HTMX fragments, and JSON responses.
 5. Worker mode starts recurring database loops:
    - baseline refresh every hour
+   - status snapshot refresh every 30 seconds
    - incident reconciliation every minute
    - policy-aware raw probe result cleanup every hour
+   - table-stat logging every hour
 6. Probe mode runs a separate synthetic worker loop that claims due probe configs and writes `probe_results`.
 
 ## HTTP surface
@@ -56,7 +58,7 @@ Templates are parsed from `templates/*.html` and `templates/components/*.html`. 
 
 The status algorithm is defined in `algorithm/status.go` and documented in [algorithm.md](./algorithm.md).
 
-The API uses the same algorithm path for both list and detail responses through `utils/DetermineStatus`, and the incident worker reuses the same logic for open/close transitions. Detail responses also include recent probe history, latency summaries, and last-success / last-failure labels assembled in `api/routes/services.go`, `storage/probes.go`, and `utils/probes.go`.
+`service_statuses` stores precomputed decisions used by API list/search/detail reads and by incident reconciliation. Detail responses also include recent probe history, latency summaries, and last-success / last-failure labels assembled in `api/routes/services.go`, `storage/probes.go`, and `utils/probes.go`.
 
 ## Workers
 
@@ -66,11 +68,15 @@ The API uses the same algorithm path for both list and detail responses through 
 
 ### Incident tracker
 
-`workers/incidents.go` runs only in `worker` mode. It recalculates current service state once per minute and opens or resolves incidents based on transitions into and out of `Outage`. Probe-only `Degraded` states are visible in the UI but do not create incident records.
+`workers/incidents.go` runs only in `worker` mode. It reconciles current service state once per minute from `service_statuses` and opens or resolves incidents based on transitions into and out of `Outage`. Probe-only `Degraded` states are visible in the UI but do not create incident records.
+
+### Status refresher
+
+`workers/statuses.go` runs only in `worker` mode. It refreshes `service_statuses` immediately at startup and then every 30 seconds. Refreshes batch report counts, baselines, and derived probe state before upserting snapshot rows.
 
 ### Probe result cleaner
 
-`workers/cleanup.go` runs only in `worker` mode. It deletes expired raw probe rows immediately at startup and then once per hour, retaining raw successes for 24 hours and raw failures for 14 days. Cleanup deletes successes and failures in separate small-batch scans and only runs `VACUUM (ANALYZE) probe_results` after a large purge. Run any historical rollup backfill before enabling this cleanup, because raw history is incomplete after success rows expire.
+`workers/cleanup.go` runs only in `worker` mode. It deletes expired raw probe rows immediately at startup and then once per hour, retaining raw successes for 24 hours and raw failures for 14 days. Cleanup deletes successes and failures in separate small-batch scans and only runs `VACUUM (ANALYZE) probe_results` after a large purge. Run any historical rollup backfill before starting worker mode on existing production data, because raw history is incomplete after success rows expire.
 
 ### Synthetic probe worker
 
@@ -92,7 +98,11 @@ Schema models live in `structs/schema.go`:
 - `UserReport`: user-submitted outage report
 - `ProbeResult`: external probe outcome
 - `ProbeConfig`: probe definition per service
+- `ServiceProbeState`: current derived probe state per service
+- `ProbeRecentResult`: capped recent probe history per service
+- `ProbeHourlyRollup`: compact hourly probe aggregates for baselines
 - `ServiceBaseline`: hour-of-week report and probe baseline statistics
+- `ServiceStatus`: precomputed current status snapshot
 - `Incident`: tracked outage window
 
 The storage layer in `storage/` owns SQL queries, Redis-backed list caching, baseline lookups, incident lookups, probe leasing/history queries, and manage-mode CRUD.
@@ -110,10 +120,12 @@ Relevant files:
 - `api/routes/router.go`
 - `api/routes/services.go`
 - `workers/baseline.go`
+- `workers/statuses.go`
 - `workers/incidents.go`
 - `workers/probe.go`
 - `workers/cleanup.go`
 - `storage/storage.go`
 - `storage/probes.go`
+- `storage/statuses.go`
 - `storage/service-detail.go`
 - `structs/schema.go`

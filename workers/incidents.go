@@ -22,7 +22,7 @@ type incidentStore interface {
 func StartIncidentTracker(store *storage.Storage) {
 	log.Info().Dur("interval", incidentRefreshInterval).Msg("Starting incident tracker")
 
-	// This loop turns status transitions into open and close incident records
+	// This loop turns status transitions into open and close incident records.
 	go func() {
 		reconcile := func() {
 			ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)

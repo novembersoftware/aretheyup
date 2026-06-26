@@ -391,6 +391,105 @@ func TestCompleteProbeLeaseCapsRecentHistoryAndStateWindow(t *testing.T) {
 	}
 }
 
+func TestBackfillProbeDerivedIsIdempotentAndPreservesNewerState(t *testing.T) {
+	store, db := newProbeIntegrationStore(t)
+	ctx := context.Background()
+	cutoff := time.Date(2026, time.January, 10, 12, 0, 0, 0, time.UTC)
+
+	serviceWithNewerState := createProbeTestService(t, db)
+	serviceWithoutState := createProbeTestService(t, db)
+
+	rawRows := make([]structs.ProbeResult, 0, probeRecentResultsCap+8)
+	for i := 0; i < probeRecentResultsCap+5; i++ {
+		checkedAt := cutoff.Add(-time.Duration(probeRecentResultsCap+5-i) * time.Minute)
+		success := i%4 != 0
+		row := structs.ProbeResult{
+			ServiceID: serviceWithNewerState.ID,
+			Region:    "global",
+			Success:   success,
+			CreatedAt: checkedAt,
+			UpdatedAt: checkedAt,
+		}
+		if success {
+			row.StatusCode = probeIntPtr(200)
+			row.ResponseTimeMs = probeIntPtr(150 + i)
+		} else {
+			row.StatusCode = probeIntPtr(503)
+			row.ResponseTimeMs = probeIntPtr(800 + i)
+			row.FailureType = structs.ProbeFailureTypeHTTPStatus
+			row.ErrorMessage = "unexpected status: got 503 want 200"
+		}
+		rawRows = append(rawRows, row)
+	}
+
+	for i := 0; i < 3; i++ {
+		checkedAt := cutoff.Add(-time.Duration(3-i) * time.Minute)
+		success := i != 1
+		row := structs.ProbeResult{
+			ServiceID: serviceWithoutState.ID,
+			Region:    "global",
+			Success:   success,
+			CreatedAt: checkedAt,
+			UpdatedAt: checkedAt,
+		}
+		if success {
+			row.StatusCode = probeIntPtr(200)
+			row.ResponseTimeMs = probeIntPtr(100 + i)
+		} else {
+			row.FailureType = structs.ProbeFailureTypeConnect
+			row.ErrorMessage = "connect: connection refused"
+		}
+		rawRows = append(rawRows, row)
+	}
+	if err := db.Create(&rawRows).Error; err != nil {
+		t.Fatalf("create raw probe rows: %v", err)
+	}
+
+	newerAt := cutoff.Add(5 * time.Minute)
+	newerState := structs.ServiceProbeState{
+		ServiceID:           serviceWithNewerState.ID,
+		LastCheckedAt:       &newerAt,
+		LastResultSuccess:   true,
+		RecentProbeTotal:    1,
+		RecentProbeFailures: 0,
+		CreatedAt:           newerAt,
+		UpdatedAt:           newerAt,
+	}
+	if err := db.Create(&newerState).Error; err != nil {
+		t.Fatalf("create newer service probe state: %v", err)
+	}
+	if err := db.Create(&structs.ProbeRecentResult{
+		ServiceID:  serviceWithNewerState.ID,
+		CheckedAt:  newerAt,
+		Success:    true,
+		StatusCode: probeIntPtr(200),
+		CreatedAt:  newerAt,
+		UpdatedAt:  newerAt,
+	}).Error; err != nil {
+		t.Fatalf("create newer recent probe row: %v", err)
+	}
+
+	result, err := store.BackfillProbeDerived(ctx, cutoff, 1)
+	if err != nil {
+		t.Fatalf("BackfillProbeDerived error = %v", err)
+	}
+	if result.ServicesScanned != 2 || result.ServiceBatches != 2 {
+		t.Fatalf("BackfillProbeDerived batches = services %d batches %d, want 2/2", result.ServicesScanned, result.ServiceBatches)
+	}
+
+	assertDerivedBackfillState(t, db, serviceWithNewerState.ID, serviceWithoutState.ID, cutoff, newerAt)
+
+	result, err = store.BackfillProbeDerived(ctx, cutoff, 1)
+	if err != nil {
+		t.Fatalf("BackfillProbeDerived second run error = %v", err)
+	}
+	if result.ServicesScanned != 2 || result.ServiceBatches != 2 {
+		t.Fatalf("second BackfillProbeDerived batches = services %d batches %d, want 2/2", result.ServicesScanned, result.ServiceBatches)
+	}
+
+	assertDerivedBackfillState(t, db, serviceWithNewerState.ID, serviceWithoutState.ID, cutoff, newerAt)
+}
+
 func TestDeleteExpiredRawProbeResultsAppliesRetentionPolicy(t *testing.T) {
 	store, db := newProbeIntegrationStore(t)
 	ctx := context.Background()
@@ -705,4 +804,74 @@ func countExpiredRawProbeResults(t *testing.T, db *gorm.DB, serviceID uint, succ
 		t.Fatalf("count expired raw probe results: %v", err)
 	}
 	return count
+}
+
+func assertDerivedBackfillState(t *testing.T, db *gorm.DB, newerServiceID, backfilledServiceID uint, cutoff, newerAt time.Time) {
+	t.Helper()
+
+	var newerRecentCount int64
+	if err := db.Model(&structs.ProbeRecentResult{}).
+		Where("service_id = ?", newerServiceID).
+		Count(&newerRecentCount).Error; err != nil {
+		t.Fatalf("count newer service recent rows: %v", err)
+	}
+	if newerRecentCount != probeRecentResultsCap {
+		t.Fatalf("newer service recent row count = %d, want capped %d", newerRecentCount, probeRecentResultsCap)
+	}
+
+	var newerBeforeCutoffCount int64
+	if err := db.Model(&structs.ProbeRecentResult{}).
+		Where("service_id = ? AND checked_at < ?", newerServiceID, cutoff).
+		Count(&newerBeforeCutoffCount).Error; err != nil {
+		t.Fatalf("count newer service pre-cutoff recent rows: %v", err)
+	}
+	if newerBeforeCutoffCount != probeRecentResultsCap-1 {
+		t.Fatalf("newer service pre-cutoff recent row count = %d, want %d", newerBeforeCutoffCount, probeRecentResultsCap-1)
+	}
+
+	var preservedNewerRecent int64
+	if err := db.Model(&structs.ProbeRecentResult{}).
+		Where("service_id = ? AND checked_at = ?", newerServiceID, newerAt).
+		Count(&preservedNewerRecent).Error; err != nil {
+		t.Fatalf("count preserved newer recent row: %v", err)
+	}
+	if preservedNewerRecent != 1 {
+		t.Fatalf("preserved newer recent rows = %d, want 1", preservedNewerRecent)
+	}
+
+	var newerState structs.ServiceProbeState
+	if err := db.Where("service_id = ?", newerServiceID).First(&newerState).Error; err != nil {
+		t.Fatalf("load newer service state: %v", err)
+	}
+	if newerState.LastCheckedAt == nil || !newerState.LastCheckedAt.Equal(newerAt) {
+		t.Fatalf("newer service LastCheckedAt = %v, want preserved %s", newerState.LastCheckedAt, newerAt)
+	}
+	if newerState.RecentProbeTotal != 5 || newerState.RecentProbeFailures != 1 {
+		t.Fatalf("newer service recent state = %d/%d, want merged 5/1", newerState.RecentProbeTotal, newerState.RecentProbeFailures)
+	}
+	if newerState.RecentWindowUpdatedAt == nil || !newerState.RecentWindowUpdatedAt.Equal(newerAt) {
+		t.Fatalf("newer service RecentWindowUpdatedAt = %v, want merged latest %s", newerState.RecentWindowUpdatedAt, newerAt)
+	}
+
+	var backfilledRecentCount int64
+	if err := db.Model(&structs.ProbeRecentResult{}).
+		Where("service_id = ?", backfilledServiceID).
+		Count(&backfilledRecentCount).Error; err != nil {
+		t.Fatalf("count backfilled service recent rows: %v", err)
+	}
+	if backfilledRecentCount != 3 {
+		t.Fatalf("backfilled service recent row count = %d, want 3", backfilledRecentCount)
+	}
+
+	var backfilledState structs.ServiceProbeState
+	if err := db.Where("service_id = ?", backfilledServiceID).First(&backfilledState).Error; err != nil {
+		t.Fatalf("load backfilled service state: %v", err)
+	}
+	wantLatest := cutoff.Add(-time.Minute)
+	if backfilledState.LastCheckedAt == nil || !backfilledState.LastCheckedAt.Equal(wantLatest) {
+		t.Fatalf("backfilled service LastCheckedAt = %v, want %s", backfilledState.LastCheckedAt, wantLatest)
+	}
+	if backfilledState.RecentProbeTotal != 3 || backfilledState.RecentProbeFailures != 1 {
+		t.Fatalf("backfilled service recent state = %d/%d, want 3/1", backfilledState.RecentProbeTotal, backfilledState.RecentProbeFailures)
+	}
 }

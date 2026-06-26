@@ -21,6 +21,7 @@ Internal maintainer docs for this repository.
 - the synthetic probe worker (`probe`)
 - the recurring database worker (`worker`)
 - a development seeder (`seed`)
+- derived-table backfill commands (`backfill-probe-rollups`, `backfill-probe-derived`)
 
 This behavior is wired in `main.go` and `utils/parse-flags.go`.
 
@@ -34,6 +35,7 @@ This docs baseline reflects the current `HEAD` state, including:
 - OG image and SEO route behavior
 - per-service synthetic probe configs with startup backfill from service homepages
 - separate `probe` and `worker` runtime modes for synthetic checks and recurring database jobs
+- status snapshot refresh with gated API and incident read cutover
 - probe detail data in service-card responses and templates
 
 Relevant files:
@@ -47,7 +49,9 @@ Relevant files:
 - `api/middleware/request-id.go`
 - `api/middleware/security-headers.go`
 - `storage/probes.go`
+- `storage/statuses.go`
 - `workers/baseline.go`
+- `workers/statuses.go`
 - `workers/incidents.go`
 - `workers/probe.go`
 - `workers/cleanup.go`

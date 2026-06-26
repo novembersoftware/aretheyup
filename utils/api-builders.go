@@ -46,6 +46,10 @@ func BuildServiceResponses(rows []storage.ServiceRow) []structs.ServiceResponse 
 	return buildServiceResponsesFromData(rows)
 }
 
+func BuildServiceResponsesFromSnapshots(rows []storage.ServiceRow) []structs.ServiceResponse {
+	return buildServiceResponsesFromData(rows)
+}
+
 func buildServiceResponsesFromData(rows []storage.ServiceRow) []structs.ServiceResponse {
 	response := make([]structs.ServiceResponse, len(rows))
 	for i, row := range rows {
