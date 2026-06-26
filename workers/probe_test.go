@@ -319,7 +319,7 @@ func TestRunProbeSweepCompletesClaimedConfigs(t *testing.T) {
 		},
 	}
 
-	err := runProbeSweep(context.Background(), store, fakeProbeExecutor{
+	stats, err := runProbeSweep(context.Background(), store, fakeProbeExecutor{
 		result: structs.ProbeResult{Region: probeRegionGlobal, Success: true},
 	}, time.Now().UTC())
 	if err != nil {
@@ -331,6 +331,12 @@ func TestRunProbeSweepCompletesClaimedConfigs(t *testing.T) {
 	}
 	if store.completed[0].configID != 1 || store.completed[1].configID != 2 {
 		t.Fatalf("completed config IDs = %+v, want [1 2]", store.completed)
+	}
+	if stats.ClaimedConfigs != 2 || stats.CompletedWrites != 2 || stats.ExecutionFailures != 0 || stats.FinalizeFailures != 0 {
+		t.Fatalf("runProbeSweep() stats = %+v, want 2 claimed and 2 completed without failures", stats)
+	}
+	if stats.Duration <= 0 {
+		t.Fatalf("runProbeSweep() duration = %s, want positive", stats.Duration)
 	}
 }
 
@@ -345,7 +351,7 @@ func TestRunProbeSweepSetsCheckedAtAfterProbeExecution(t *testing.T) {
 
 	start := time.Now().UTC()
 	delay := 20 * time.Millisecond
-	err := runProbeSweep(context.Background(), store, slowProbeExecutor{
+	stats, err := runProbeSweep(context.Background(), store, slowProbeExecutor{
 		delay:  delay,
 		result: structs.ProbeResult{Region: probeRegionGlobal, Success: true},
 	}, start)
@@ -359,13 +365,20 @@ func TestRunProbeSweepSetsCheckedAtAfterProbeExecution(t *testing.T) {
 	if cutoff := start.Add(delay); store.completed[0].checkedAt.Before(cutoff) {
 		t.Fatalf("checkedAt = %s, want after probe execution cutoff %s", store.completed[0].checkedAt, cutoff)
 	}
+	if stats.CompletedWrites != 1 {
+		t.Fatalf("runProbeSweep() completed writes = %d, want 1", stats.CompletedWrites)
+	}
+	if stats.WriteRate <= 0 {
+		t.Fatalf("runProbeSweep() write rate = %f, want positive", stats.WriteRate)
+	}
 }
 
 func TestCleanupOldProbeResults(t *testing.T) {
 	store := &fakeProbeStore{}
 	now := time.Date(2026, time.January, 10, 12, 0, 0, 0, time.UTC)
 
-	if err := cleanupOldProbeResults(context.Background(), store, now); err != nil {
+	stats, err := cleanupOldProbeResults(context.Background(), store, now)
+	if err != nil {
 		t.Fatalf("cleanupOldProbeResults() error = %v", err)
 	}
 
@@ -374,6 +387,12 @@ func TestCleanupOldProbeResults(t *testing.T) {
 	}
 	if want := now.Add(-probeRawRetention); !store.deleteCutoffs[0].Equal(want) {
 		t.Fatalf("cleanup cutoff = %s, want %s", store.deleteCutoffs[0], want)
+	}
+	if stats.RowsDeleted != 3 {
+		t.Fatalf("cleanup rows deleted = %d, want 3", stats.RowsDeleted)
+	}
+	if stats.Duration <= 0 {
+		t.Fatalf("cleanup duration = %s, want positive", stats.Duration)
 	}
 }
 

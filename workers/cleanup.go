@@ -17,6 +17,11 @@ type probeCleanupStore interface {
 	DeleteProbeResultsOlderThan(ctx context.Context, cutoff time.Time) (int64, error)
 }
 
+type ProbeCleanupStats struct {
+	RowsDeleted int64
+	Duration    time.Duration
+}
+
 func StartProbeResultCleaner(store *storage.Storage) {
 	log.Info().Dur("interval", probeCleanupInterval).Msg("Starting probe result cleaner")
 
@@ -25,9 +30,26 @@ func StartProbeResultCleaner(store *storage.Storage) {
 			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 			defer cancel()
 
-			if err := cleanupOldProbeResults(ctx, store, time.Now().UTC()); err != nil {
-				log.Error().Err(err).Msg("Failed to clean old probe results")
+			stats, err := cleanupOldProbeResults(ctx, store, time.Now().UTC())
+			if err != nil {
+				log.Error().
+					Err(err).
+					Str("mode", "worker").
+					Str("job", "probe_result_cleanup").
+					Dur("duration", stats.Duration).
+					Bool("success", false).
+					Int64("rows_deleted", stats.RowsDeleted).
+					Msg("Probe result cleanup failed")
+				return
 			}
+
+			log.Info().
+				Str("mode", "worker").
+				Str("job", "probe_result_cleanup").
+				Dur("duration", stats.Duration).
+				Bool("success", true).
+				Int64("rows_deleted", stats.RowsDeleted).
+				Msg("Probe result cleanup completed")
 		}
 
 		cleanup()
@@ -41,15 +63,18 @@ func StartProbeResultCleaner(store *storage.Storage) {
 	}()
 }
 
-func cleanupOldProbeResults(ctx context.Context, store probeCleanupStore, now time.Time) error {
+func cleanupOldProbeResults(ctx context.Context, store probeCleanupStore, now time.Time) (ProbeCleanupStats, error) {
+	start := time.Now()
+	stats := ProbeCleanupStats{}
+
 	cutoff := now.Add(-probeRawRetention)
 	deleted, err := store.DeleteProbeResultsOlderThan(ctx, cutoff)
 	if err != nil {
-		return err
-	}
-	if deleted > 0 {
-		log.Info().Int64("deleted", deleted).Time("cutoff", cutoff).Msg("Deleted expired probe results")
+		stats.Duration = time.Since(start)
+		return stats, err
 	}
 
-	return nil
+	stats.RowsDeleted = deleted
+	stats.Duration = time.Since(start)
+	return stats, nil
 }

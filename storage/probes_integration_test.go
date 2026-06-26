@@ -227,7 +227,7 @@ func TestBackfillProbeHourlyRollupsFeedsBaselineRefresh(t *testing.T) {
 		t.Fatalf("second Sunday rollup counts = %d/%d, want total 2 failures 1", sundayRollups[1].TotalCount, sundayRollups[1].FailureCount)
 	}
 
-	if err := store.refreshServiceBaselines(ctx, service.ID, createdAt, end); err != nil {
+	if _, err := store.refreshServiceBaselines(ctx, service.ID, createdAt, end); err != nil {
 		t.Fatalf("refreshServiceBaselines error = %v", err)
 	}
 
@@ -293,7 +293,7 @@ func TestRefreshServiceBaselinesExcludesIncompleteRollupBucket(t *testing.T) {
 	}
 
 	now := time.Date(2026, time.January, 10, 12, 55, 0, 0, time.UTC)
-	if err := store.refreshServiceBaselines(ctx, service.ID, createdAt, now); err != nil {
+	if _, err := store.refreshServiceBaselines(ctx, service.ID, createdAt, now); err != nil {
 		t.Fatalf("refreshServiceBaselines error = %v", err)
 	}
 

@@ -21,10 +21,11 @@ const (
 
 func (s *Storage) GetCachedServiceListResponses(ctx context.Context, limit, offset int) ([]structs.ServiceResponse, bool) {
 	if !shouldCacheServiceList(limit, offset) {
+		s.recordListCacheBypass()
 		return nil, false
 	}
 
-	return getCachedJSON[[]structs.ServiceResponse](s, ctx, serviceListResponsesCacheKey(limit, offset))
+	return getCachedJSON[[]structs.ServiceResponse](s, ctx, serviceListResponsesCacheKey(limit, offset), true)
 }
 
 func (s *Storage) SetCachedServiceListResponses(ctx context.Context, limit, offset int, response []structs.ServiceResponse) {
@@ -32,18 +33,19 @@ func (s *Storage) SetCachedServiceListResponses(ctx context.Context, limit, offs
 		return
 	}
 
-	setCachedJSON(s, ctx, serviceListResponsesCacheKey(limit, offset), response, serviceCacheTTL)
+	setCachedJSON(s, ctx, serviceListResponsesCacheKey(limit, offset), response, serviceCacheTTL, true)
 }
 
 func (s *Storage) GetCachedServiceDetailResponse(ctx context.Context, slug string) (structs.ServiceDetailResponse, bool) {
-	return getCachedJSON[structs.ServiceDetailResponse](s, ctx, serviceDetailResponseCacheKey(slug))
+	return getCachedJSON[structs.ServiceDetailResponse](s, ctx, serviceDetailResponseCacheKey(slug), false)
 }
 
 func (s *Storage) SetCachedServiceDetailResponse(ctx context.Context, slug string, response structs.ServiceDetailResponse) {
-	setCachedJSON(s, ctx, serviceDetailResponseCacheKey(slug), response, serviceCacheTTL)
+	setCachedJSON(s, ctx, serviceDetailResponseCacheKey(slug), response, serviceCacheTTL, false)
 }
 
 func (s *Storage) InvalidateServiceCaches(ctx context.Context, slugs ...string) {
+	s.recordListCacheInvalidation()
 	s.deleteCacheKeys(ctx, serviceCacheKeysForInvalidation(slugs...)...)
 }
 
@@ -66,17 +68,26 @@ func (s *Storage) serviceSlugForCacheInvalidation(ctx context.Context, serviceID
 	return service.Slug
 }
 
-func getCachedJSON[T any](s *Storage, ctx context.Context, key string) (T, bool) {
+func getCachedJSON[T any](s *Storage, ctx context.Context, key string, recordListStats bool) (T, bool) {
 	var zero T
 	if s.redis == nil {
+		if recordListStats {
+			s.recordListCacheBypass()
+		}
 		return zero, false
 	}
 
 	payload, err := s.redis.Get(ctx, key).Bytes()
 	if err != nil {
 		if errors.Is(err, r.Nil) {
+			if recordListStats {
+				s.recordListCacheMiss()
+			}
 			log.Debug().Str("cache_key", key).Msg("Redis cache miss")
 		} else {
+			if recordListStats {
+				s.recordListCacheReadError()
+			}
 			log.Debug().Err(err).Str("cache_key", key).Msg("Redis cache read failure")
 		}
 		return zero, false
@@ -84,16 +95,23 @@ func getCachedJSON[T any](s *Storage, ctx context.Context, key string) (T, bool)
 
 	var value T
 	if err := json.Unmarshal(payload, &value); err != nil {
+		if recordListStats {
+			s.recordListCacheDecodeError()
+			s.recordListCacheInvalidation()
+		}
 		log.Debug().Err(err).Str("cache_key", key).Msg("Redis cache decode failure")
 		s.deleteCacheKeys(ctx, key)
 		return zero, false
 	}
 
+	if recordListStats {
+		s.recordListCacheHit()
+	}
 	log.Debug().Str("cache_key", key).Msg("Redis cache hit")
 	return value, true
 }
 
-func setCachedJSON(s *Storage, ctx context.Context, key string, value any, ttl time.Duration) {
+func setCachedJSON(s *Storage, ctx context.Context, key string, value any, ttl time.Duration, recordListStats bool) {
 	if s.redis == nil {
 		return
 	}
@@ -105,6 +123,9 @@ func setCachedJSON(s *Storage, ctx context.Context, key string, value any, ttl t
 	}
 
 	if err := s.redis.Set(ctx, key, payload, ttl).Err(); err != nil {
+		if recordListStats {
+			s.recordListCacheWriteError()
+		}
 		log.Debug().Err(err).Str("cache_key", key).Msg("Redis cache write failure")
 	}
 }

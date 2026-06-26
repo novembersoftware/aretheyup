@@ -29,9 +29,30 @@ func StartIncidentTracker(store *storage.Storage) {
 			defer cancel()
 
 			now := time.Now().UTC()
-			if err := reconcileIncidents(ctx, store, now); err != nil {
-				log.Error().Err(err).Msg("Failed to reconcile incidents")
+			stats, err := reconcileIncidents(ctx, store, now)
+			if err != nil {
+				log.Error().
+					Err(err).
+					Str("mode", "worker").
+					Str("job", "incident_reconciliation").
+					Dur("duration", stats.Duration).
+					Bool("success", false).
+					Int("services_scanned", stats.ServicesScanned).
+					Int("opened", stats.Opened).
+					Int("resolved", stats.Resolved).
+					Msg("Incident reconciliation failed")
+				return
 			}
+
+			log.Info().
+				Str("mode", "worker").
+				Str("job", "incident_reconciliation").
+				Dur("duration", stats.Duration).
+				Bool("success", true).
+				Int("services_scanned", stats.ServicesScanned).
+				Int("opened", stats.Opened).
+				Int("resolved", stats.Resolved).
+				Msg("Incident reconciliation completed")
 		}
 
 		reconcile()
@@ -45,14 +66,27 @@ func StartIncidentTracker(store *storage.Storage) {
 	}()
 }
 
-func reconcileIncidents(ctx context.Context, store incidentStore, now time.Time) error {
+type IncidentReconcileStats struct {
+	ServicesScanned int
+	Opened          int
+	Resolved        int
+	Duration        time.Duration
+}
+
+func reconcileIncidents(ctx context.Context, store incidentStore, now time.Time) (IncidentReconcileStats, error) {
+	start := time.Now()
+	stats := IncidentReconcileStats{}
+
 	statuses, err := store.GetActiveServiceStatuses(ctx)
 	if err != nil {
-		return err
+		stats.Duration = time.Since(start)
+		return stats, err
 	}
+	stats.ServicesScanned = len(statuses)
 
 	if len(statuses) == 0 {
-		return nil
+		stats.Duration = time.Since(start)
+		return stats, nil
 	}
 
 	serviceIDs := make([]uint, 0, len(statuses))
@@ -62,7 +96,8 @@ func reconcileIncidents(ctx context.Context, store incidentStore, now time.Time)
 
 	activeIncidents, err := store.GetActiveIncidentsByServiceIDs(ctx, serviceIDs)
 	if err != nil {
-		return err
+		stats.Duration = time.Since(start)
+		return stats, err
 	}
 
 	for _, snapshot := range statuses {
@@ -73,9 +108,11 @@ func reconcileIncidents(ctx context.Context, store incidentStore, now time.Time)
 		if shouldOpen {
 			opened, err := store.OpenIncidentIfNoneActive(ctx, snapshot.ServiceID, now)
 			if err != nil {
-				return err
+				stats.Duration = time.Since(start)
+				return stats, err
 			}
 			if opened {
+				stats.Opened++
 				log.Info().Uint("service_id", snapshot.ServiceID).Time("started_at", now).Msg("Opened incident")
 			}
 			continue
@@ -84,15 +121,18 @@ func reconcileIncidents(ctx context.Context, store incidentStore, now time.Time)
 		if shouldResolve {
 			closed, err := store.ResolveActiveIncident(ctx, snapshot.ServiceID, now)
 			if err != nil {
-				return err
+				stats.Duration = time.Since(start)
+				return stats, err
 			}
 			if closed {
+				stats.Resolved++
 				log.Info().Uint("service_id", snapshot.ServiceID).Time("resolved_at", now).Msg("Resolved incident")
 			}
 		}
 	}
 
-	return nil
+	stats.Duration = time.Since(start)
+	return stats, nil
 }
 
 func statusFromSnapshot(snapshot structs.ServiceStatus) algorithm.Status {

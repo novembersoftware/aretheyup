@@ -77,10 +77,14 @@ func TestReconcileIncidentsUsesSnapshots(t *testing.T) {
 		},
 	}
 
-	if err := reconcileIncidents(context.Background(), store, now); err != nil {
+	stats, err := reconcileIncidents(context.Background(), store, now)
+	if err != nil {
 		t.Fatalf("reconcileIncidents() error = %v", err)
 	}
 
+	if stats.ServicesScanned != 3 || stats.Opened != 1 || stats.Resolved != 2 {
+		t.Fatalf("stats = %+v, want services/opened/resolved 3/1/2", stats)
+	}
 	if len(store.opened) != 1 || store.opened[0] != 1 {
 		t.Fatalf("opened = %v, want [1]", store.opened)
 	}
