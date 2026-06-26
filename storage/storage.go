@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"sync/atomic"
 	"time"
 
 	"github.com/novembersoftware/aretheyup/algorithm"
@@ -20,8 +21,9 @@ const listServicesCacheTTL = 10 * time.Second
 // Storage is the data access layer. It holds connections to all backing stores
 // and exposes methods for every data operation
 type Storage struct {
-	db    *gorm.DB
-	redis *r.Client
+	db             *gorm.DB
+	redis          *r.Client
+	listCacheStats listCacheCounters
 }
 
 func (s *Storage) Redis() *r.Client {
@@ -31,6 +33,79 @@ func (s *Storage) Redis() *r.Client {
 // New returns a Storage backed by the provided Postgres connection
 func New(db *gorm.DB, redis *r.Client) *Storage {
 	return &Storage{db: db, redis: redis}
+}
+
+type listCacheCounters struct {
+	hit          atomic.Int64
+	miss         atomic.Int64
+	bypass       atomic.Int64
+	readError    atomic.Int64
+	decodeError  atomic.Int64
+	writeError   atomic.Int64
+	invalidation atomic.Int64
+}
+
+// ListCacheStats is a snapshot of list-cache effectiveness counters.
+type ListCacheStats struct {
+	Hit          int64
+	Miss         int64
+	Bypass       int64
+	ReadError    int64
+	DecodeError  int64
+	WriteError   int64
+	Invalidation int64
+}
+
+func (s *Storage) ListCacheStatsSnapshot() ListCacheStats {
+	return ListCacheStats{
+		Hit:          s.listCacheStats.hit.Load(),
+		Miss:         s.listCacheStats.miss.Load(),
+		Bypass:       s.listCacheStats.bypass.Load(),
+		ReadError:    s.listCacheStats.readError.Load(),
+		DecodeError:  s.listCacheStats.decodeError.Load(),
+		WriteError:   s.listCacheStats.writeError.Load(),
+		Invalidation: s.listCacheStats.invalidation.Load(),
+	}
+}
+
+func (s *Storage) ResetListCacheStats() ListCacheStats {
+	return ListCacheStats{
+		Hit:          s.listCacheStats.hit.Swap(0),
+		Miss:         s.listCacheStats.miss.Swap(0),
+		Bypass:       s.listCacheStats.bypass.Swap(0),
+		ReadError:    s.listCacheStats.readError.Swap(0),
+		DecodeError:  s.listCacheStats.decodeError.Swap(0),
+		WriteError:   s.listCacheStats.writeError.Swap(0),
+		Invalidation: s.listCacheStats.invalidation.Swap(0),
+	}
+}
+
+func (s *Storage) recordListCacheHit() {
+	s.listCacheStats.hit.Add(1)
+}
+
+func (s *Storage) recordListCacheMiss() {
+	s.listCacheStats.miss.Add(1)
+}
+
+func (s *Storage) recordListCacheBypass() {
+	s.listCacheStats.bypass.Add(1)
+}
+
+func (s *Storage) recordListCacheReadError() {
+	s.listCacheStats.readError.Add(1)
+}
+
+func (s *Storage) recordListCacheDecodeError() {
+	s.listCacheStats.decodeError.Add(1)
+}
+
+func (s *Storage) recordListCacheWriteError() {
+	s.listCacheStats.writeError.Add(1)
+}
+
+func (s *Storage) recordListCacheInvalidation() {
+	s.listCacheStats.invalidation.Add(1)
 }
 
 // ServiceRow is the result of a services query that includes aggregated report counts
@@ -57,6 +132,8 @@ func (s *Storage) ListServices(ctx context.Context, limit, offset int) ([]Servic
 		if cached, ok := s.getCachedServiceRows(ctx, cacheKey); ok {
 			return cached, nil
 		}
+	} else {
+		s.recordListCacheBypass()
 	}
 
 	var rows []ServiceRow
@@ -280,24 +357,31 @@ func (s *Storage) UpsertProbeConfig(ctx context.Context, pc *structs.ProbeConfig
 
 func (s *Storage) getCachedServiceRows(ctx context.Context, key string) ([]ServiceRow, bool) {
 	if s.redis == nil {
+		s.recordListCacheBypass()
 		return nil, false
 	}
 
 	payload, err := s.redis.Get(ctx, key).Bytes()
 	if err != nil {
 		if !errors.Is(err, r.Nil) {
+			s.recordListCacheReadError()
 			log.Debug().Err(err).Str("cache_key", key).Msg("Failed to read list cache")
+		} else {
+			s.recordListCacheMiss()
 		}
 		return nil, false
 	}
 
 	var rows []ServiceRow
 	if err := json.Unmarshal(payload, &rows); err != nil {
+		s.recordListCacheDecodeError()
 		log.Debug().Err(err).Str("cache_key", key).Msg("Failed to decode list cache")
+		s.recordListCacheInvalidation()
 		_ = s.redis.Del(ctx, key).Err()
 		return nil, false
 	}
 
+	s.recordListCacheHit()
 	return rows, true
 }
 
@@ -313,6 +397,7 @@ func (s *Storage) setCachedServiceRows(ctx context.Context, key string, rows []S
 	}
 
 	if err := s.redis.Set(ctx, key, payload, listServicesCacheTTL).Err(); err != nil {
+		s.recordListCacheWriteError()
 		log.Debug().Err(err).Str("cache_key", key).Msg("Failed to write list cache")
 	}
 }
@@ -322,6 +407,7 @@ func (s *Storage) invalidateServiceListCache(ctx context.Context) {
 		return
 	}
 
+	s.recordListCacheInvalidation()
 	if err := s.redis.Del(ctx, listServicesCacheKey(49, 0)).Err(); err != nil {
 		log.Debug().Err(err).Str("cache_key", listServicesCacheKey(49, 0)).Msg("Failed to invalidate list cache")
 	}

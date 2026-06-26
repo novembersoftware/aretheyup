@@ -33,7 +33,14 @@ type ProbeStats struct {
 	RecentProbeFailures int64 `gorm:"column:recent_probe_failures"`
 }
 
-func (s *Storage) RefreshAllBaselines(ctx context.Context, now time.Time) error {
+type BaselineRefreshStats struct {
+	ServicesScanned      int
+	BaselineRowsAffected int64
+}
+
+func (s *Storage) RefreshAllBaselines(ctx context.Context, now time.Time) (BaselineRefreshStats, error) {
+	var stats BaselineRefreshStats
+
 	// We refresh every active service each cycle so API reads stay simple
 	type serviceSeed struct {
 		ID        uint
@@ -46,19 +53,22 @@ func (s *Storage) RefreshAllBaselines(ctx context.Context, now time.Time) error 
 		Select("id, created_at").
 		Where("active = ?", true).
 		Find(&services).Error; err != nil {
-		return err
+		return stats, err
 	}
+	stats.ServicesScanned = len(services)
 
 	for _, service := range services {
-		if err := s.refreshServiceBaselines(ctx, service.ID, service.CreatedAt, now); err != nil {
-			return fmt.Errorf("refresh baseline for service %d: %w", service.ID, err)
+		rowsAffected, err := s.refreshServiceBaselines(ctx, service.ID, service.CreatedAt, now)
+		if err != nil {
+			return stats, fmt.Errorf("refresh baseline for service %d: %w", service.ID, err)
 		}
+		stats.BaselineRowsAffected += rowsAffected
 	}
 
-	return nil
+	return stats, nil
 }
 
-func (s *Storage) refreshServiceBaselines(ctx context.Context, serviceID uint, createdAt, now time.Time) error {
+func (s *Storage) refreshServiceBaselines(ctx context.Context, serviceID uint, createdAt, now time.Time) (int64, error) {
 	// Baselines are capped at 6 months of history and aligned to 30-minute windows
 	end := floorToHalfHour(now.UTC())
 	start := createdAt.UTC()
@@ -69,7 +79,7 @@ func (s *Storage) refreshServiceBaselines(ctx context.Context, serviceID uint, c
 	start = floorToHalfHour(start)
 
 	if start.After(end) {
-		return nil
+		return 0, nil
 	}
 
 	// Build per-window report counts (including zero-report windows) and then roll them up
@@ -99,11 +109,11 @@ func (s *Storage) refreshServiceBaselines(ctx context.Context, serviceID uint, c
 		FROM window_counts
 		GROUP BY hour_of_week
 	`, start, end, serviceID).Scan(&userBuckets).Error; err != nil {
-		return err
+		return 0, err
 	}
 
 	if len(userBuckets) == 0 {
-		return nil
+		return 0, nil
 	}
 
 	// Probe baseline uses the same hour-of-week bucket strategy, but based on failures
@@ -127,7 +137,7 @@ func (s *Storage) refreshServiceBaselines(ctx context.Context, serviceID uint, c
 	`, serviceID, start, end).Scan(&probeBuckets).Error; err != nil {
 		// Let report baselines continue even when probe storage is not ready yet
 		if !isProbeDataUnavailable(err) {
-			return err
+			return 0, err
 		}
 	}
 
@@ -153,7 +163,7 @@ func (s *Storage) refreshServiceBaselines(ctx context.Context, serviceID uint, c
 	}
 
 	// Upsert keeps one row per (service, hour_of_week)
-	return s.db.WithContext(ctx).Clauses(clause.OnConflict{
+	result := s.db.WithContext(ctx).Clauses(clause.OnConflict{
 		Columns: []clause.Column{{Name: "service_id"}, {Name: "hour_of_week"}},
 		DoUpdates: clause.AssignmentColumns([]string{
 			"mean_reports",
@@ -165,7 +175,12 @@ func (s *Storage) refreshServiceBaselines(ctx context.Context, serviceID uint, c
 			"probe_latency_samples",
 			"updated_at",
 		}),
-	}).Create(&rows).Error
+	}).Create(&rows)
+	if result.Error != nil {
+		return 0, result.Error
+	}
+
+	return result.RowsAffected, nil
 }
 
 func (s *Storage) GetBaselineForServiceHour(ctx context.Context, serviceID uint, hourOfWeek int) (*structs.ServiceBaseline, error) {

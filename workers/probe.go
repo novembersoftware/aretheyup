@@ -43,9 +43,7 @@ func runProbeWorker(ctx context.Context, store probeStore, executor probeExecuto
 	sweepTicker := time.NewTicker(probeSweepInterval)
 	defer sweepTicker.Stop()
 
-	if err := runProbeSweep(ctx, store, executor, time.Now().UTC()); err != nil {
-		log.Error().Err(err).Msg("Probe sweep failed")
-	}
+	logProbeSweepStats(runProbeSweep(ctx, store, executor, time.Now().UTC()))
 
 	for {
 		select {
@@ -55,26 +53,42 @@ func runProbeWorker(ctx context.Context, store probeStore, executor probeExecuto
 			}
 			return ctx.Err()
 		case <-sweepTicker.C:
-			if err := runProbeSweep(ctx, store, executor, time.Now().UTC()); err != nil {
-				log.Error().Err(err).Msg("Probe sweep failed")
-			}
+			logProbeSweepStats(runProbeSweep(ctx, store, executor, time.Now().UTC()))
 		}
 	}
 }
 
-func runProbeSweep(ctx context.Context, store probeStore, executor probeExecutor, now time.Time) error {
+type ProbeSweepStats struct {
+	ClaimedConfigs    int
+	CompletedWrites   int
+	ExecutionFailures int
+	FinalizeFailures  int
+	Duration          time.Duration
+	WriteRate         float64
+}
+
+func runProbeSweep(ctx context.Context, store probeStore, executor probeExecutor, now time.Time) (ProbeSweepStats, error) {
+	start := time.Now()
+	stats := ProbeSweepStats{}
+
 	for {
 		claimed, err := store.ClaimDueProbeConfigs(ctx, now, probeClaimBatchSize)
 		if err != nil {
-			return err
+			stats.Duration = time.Since(start)
+			stats.WriteRate = probeWriteRate(stats.CompletedWrites, stats.Duration)
+			return stats, err
 		}
 		if len(claimed) == 0 {
-			return nil
+			stats.Duration = time.Since(start)
+			stats.WriteRate = probeWriteRate(stats.CompletedWrites, stats.Duration)
+			return stats, nil
 		}
+		stats.ClaimedConfigs += len(claimed)
 
 		for _, cfg := range claimed {
 			result, err := executeClaimedProbe(ctx, executor, cfg)
 			if err != nil {
+				stats.ExecutionFailures++
 				log.Error().
 					Err(err).
 					Uint("probe_config_id", cfg.ID).
@@ -85,6 +99,7 @@ func runProbeSweep(ctx context.Context, store probeStore, executor probeExecutor
 
 			checkedAt := time.Now().UTC()
 			if err := store.CompleteProbeLease(ctx, cfg.ID, cfg.LeaseToken, result, checkedAt); err != nil {
+				stats.FinalizeFailures++
 				log.Error().
 					Err(err).
 					Uint("probe_config_id", cfg.ID).
@@ -92,6 +107,7 @@ func runProbeSweep(ctx context.Context, store probeStore, executor probeExecutor
 					Msg("Failed to finalize probe result")
 				continue
 			}
+			stats.CompletedWrites++
 
 			log.Debug().
 				Uint("service_id", cfg.ServiceID).
@@ -102,9 +118,37 @@ func runProbeSweep(ctx context.Context, store probeStore, executor probeExecutor
 		}
 
 		if len(claimed) < probeClaimBatchSize {
-			return nil
+			stats.Duration = time.Since(start)
+			stats.WriteRate = probeWriteRate(stats.CompletedWrites, stats.Duration)
+			return stats, nil
 		}
 	}
+}
+
+func logProbeSweepStats(stats ProbeSweepStats, err error) {
+	event := log.Info()
+	if err != nil {
+		event = log.Error().Err(err)
+	}
+
+	event.
+		Str("mode", "probe").
+		Str("job", "probe_sweep").
+		Dur("duration", stats.Duration).
+		Bool("success", err == nil).
+		Int("claimed_configs", stats.ClaimedConfigs).
+		Int("completed_writes", stats.CompletedWrites).
+		Int("execution_failures", stats.ExecutionFailures).
+		Int("finalize_failures", stats.FinalizeFailures).
+		Float64("write_rate", stats.WriteRate).
+		Msg("Probe sweep completed")
+}
+
+func probeWriteRate(writes int, duration time.Duration) float64 {
+	if writes == 0 || duration <= 0 {
+		return 0
+	}
+	return float64(writes) / duration.Seconds()
 }
 
 func executeClaimedProbe(ctx context.Context, executor probeExecutor, cfg structs.ProbeConfig) (structs.ProbeResult, error) {

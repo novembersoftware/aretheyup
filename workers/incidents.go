@@ -22,9 +22,30 @@ func StartIncidentTracker(store *storage.Storage) {
 			defer cancel()
 
 			now := time.Now().UTC()
-			if err := reconcileIncidents(ctx, store, now); err != nil {
-				log.Error().Err(err).Msg("Failed to reconcile incidents")
+			stats, err := reconcileIncidents(ctx, store, now)
+			if err != nil {
+				log.Error().
+					Err(err).
+					Str("mode", "worker").
+					Str("job", "incident_reconciliation").
+					Dur("duration", stats.Duration).
+					Bool("success", false).
+					Int("services_scanned", stats.ServicesScanned).
+					Int("opened", stats.Opened).
+					Int("resolved", stats.Resolved).
+					Msg("Incident reconciliation failed")
+				return
 			}
+
+			log.Info().
+				Str("mode", "worker").
+				Str("job", "incident_reconciliation").
+				Dur("duration", stats.Duration).
+				Bool("success", true).
+				Int("services_scanned", stats.ServicesScanned).
+				Int("opened", stats.Opened).
+				Int("resolved", stats.Resolved).
+				Msg("Incident reconciliation completed")
 		}
 
 		reconcile()
@@ -38,38 +59,55 @@ func StartIncidentTracker(store *storage.Storage) {
 	}()
 }
 
-func reconcileIncidents(ctx context.Context, store *storage.Storage, now time.Time) error {
+type IncidentReconcileStats struct {
+	ServicesScanned int
+	Opened          int
+	Resolved        int
+	Duration        time.Duration
+}
+
+func reconcileIncidents(ctx context.Context, store *storage.Storage, now time.Time) (IncidentReconcileStats, error) {
+	start := time.Now()
+	stats := IncidentReconcileStats{}
+
 	// Active services are the only ones considered for incident transitions
 	serviceIDs, err := store.GetActiveServiceIDs(ctx)
 	if err != nil {
-		return err
+		stats.Duration = time.Since(start)
+		return stats, err
 	}
+	stats.ServicesScanned = len(serviceIDs)
 
 	if len(serviceIDs) == 0 {
-		return nil
+		stats.Duration = time.Since(start)
+		return stats, nil
 	}
 
 	// Gather all algorithm inputs in batches for this cycle
 	reportSince := now.Add(-algorithm.ReportWindow)
 	reportCounts, err := store.GetRecentReportCountsForServices(ctx, serviceIDs, reportSince)
 	if err != nil {
-		return err
+		stats.Duration = time.Since(start)
+		return stats, err
 	}
 
 	hourOfWeek := toHourOfWeek(now)
 	baselines, err := store.GetBaselinesForServicesHour(ctx, serviceIDs, hourOfWeek)
 	if err != nil {
-		return err
+		stats.Duration = time.Since(start)
+		return stats, err
 	}
 
 	probeStats, err := store.GetRecentProbeStatsForServices(ctx, serviceIDs, algorithm.RecentProbeWindow)
 	if err != nil {
-		return err
+		stats.Duration = time.Since(start)
+		return stats, err
 	}
 
 	activeIncidents, err := store.GetActiveIncidentsByServiceIDs(ctx, serviceIDs)
 	if err != nil {
-		return err
+		stats.Duration = time.Since(start)
+		return stats, err
 	}
 
 	for _, serviceID := range serviceIDs {
@@ -81,9 +119,11 @@ func reconcileIncidents(ctx context.Context, store *storage.Storage, now time.Ti
 		if shouldOpen {
 			opened, err := store.OpenIncidentIfNoneActive(ctx, serviceID, now)
 			if err != nil {
-				return err
+				stats.Duration = time.Since(start)
+				return stats, err
 			}
 			if opened {
+				stats.Opened++
 				log.Info().Uint("service_id", serviceID).Time("started_at", now).Msg("Opened incident")
 			}
 			continue
@@ -92,15 +132,18 @@ func reconcileIncidents(ctx context.Context, store *storage.Storage, now time.Ti
 		if shouldResolve {
 			closed, err := store.ResolveActiveIncident(ctx, serviceID, now)
 			if err != nil {
-				return err
+				stats.Duration = time.Since(start)
+				return stats, err
 			}
 			if closed {
+				stats.Resolved++
 				log.Info().Uint("service_id", serviceID).Time("resolved_at", now).Msg("Resolved incident")
 			}
 		}
 	}
 
-	return nil
+	stats.Duration = time.Since(start)
+	return stats, nil
 }
 
 func determineServiceStatus(

@@ -74,7 +74,8 @@ func main() {
 }
 
 func apiMode(store *storage.Storage) {
-	log.Info().Msg("Starting API mode")
+	log.Info().Str("mode", "api").Msg("Starting API mode")
+	store.StartListCacheStatsLogger(context.Background(), time.Minute)
 	api.Start(store)
 }
 
@@ -85,7 +86,7 @@ func manageMode(store *storage.Storage) {
 }
 
 func probeMode(store *storage.Storage) {
-	log.Info().Msg("Starting probe mode")
+	log.Info().Str("mode", "probe").Msg("Starting probe mode")
 	if err := workers.RunProbeWorker(store); err != nil {
 		log.Fatal().Err(err).Msg("Probe worker stopped")
 	}
@@ -96,10 +97,11 @@ func seedMode(db *gorm.DB) {
 }
 
 func workerMode(store *storage.Storage) {
-	log.Info().Msg("Starting worker mode")
+	log.Info().Str("mode", "worker").Msg("Starting worker mode")
 	workers.StartBaselineRefresher(store)
 	workers.StartIncidentTracker(store)
 	workers.StartProbeResultCleaner(store)
+	workers.StartTableStatsLogger(store)
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
