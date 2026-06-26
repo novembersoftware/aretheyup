@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/lib/pq"
+	"github.com/novembersoftware/aretheyup/algorithm"
 	"github.com/novembersoftware/aretheyup/structs"
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
@@ -203,71 +204,120 @@ func (s *Storage) GetBaselinesForServicesHour(ctx context.Context, serviceIDs []
 }
 
 func (s *Storage) GetRecentProbeStats(ctx context.Context, serviceID uint, limit int) (int64, int64, error) {
-	// Pull only the latest N rows for this service and aggregate in SQL
-	var stat ProbeStats
-	if err := s.db.WithContext(ctx).Raw(`
-		SELECT
-			COUNT(*) AS recent_probe_total,
-			COALESCE(SUM(CASE WHEN success = false THEN 1 ELSE 0 END), 0) AS recent_probe_failures
-		FROM (
-			SELECT success
-			FROM probe_results
-			WHERE service_id = ?
-			ORDER BY created_at DESC
-			LIMIT ?
-		) AS recent
-	`, serviceID, limit).Scan(&stat).Error; err != nil {
-		// Missing probe tables should behave like no probe samples
+	var state structs.ServiceProbeState
+	if err := s.db.WithContext(ctx).
+		Select("service_id", "recent_probe_total", "recent_probe_failures").
+		Where("service_id = ?", serviceID).
+		First(&state).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return s.getRawRecentProbeStats(ctx, serviceID, limit)
+		}
 		if isProbeDataUnavailable(err) {
-			return 0, 0, nil
+			return s.getRawRecentProbeStats(ctx, serviceID, limit)
 		}
 		return 0, 0, err
 	}
 
-	return stat.RecentProbeTotal, stat.RecentProbeFailures, nil
+	return state.RecentProbeTotal, state.RecentProbeFailures, nil
 }
 
 func (s *Storage) GetRecentProbeStatsForServices(ctx context.Context, serviceIDs []uint, limit int) (map[uint]ProbeStats, error) {
-	// Same as above, but batched using a window function to avoid N+1 queries
 	byService := make(map[uint]ProbeStats, len(serviceIDs))
 	if len(serviceIDs) == 0 {
 		return byService, nil
 	}
 
-	var stats []ProbeStats
+	var states []structs.ServiceProbeState
 	serviceIDList := toInt64Slice(serviceIDs)
-	if err := s.db.WithContext(ctx).Raw(`
-		WITH ranked AS (
+	if err := s.db.WithContext(ctx).
+		Select("service_id", "recent_probe_total", "recent_probe_failures").
+		Where("service_id = ANY(?)", pq.Array(serviceIDList)).
+		Find(&states).Error; err != nil {
+		if isProbeDataUnavailable(err) {
+			return s.getRawRecentProbeStatsForServices(ctx, serviceIDs, limit)
+		}
+		return nil, err
+	}
+
+	for _, state := range states {
+		byService[state.ServiceID] = ProbeStats{
+			ServiceID:           state.ServiceID,
+			RecentProbeTotal:    state.RecentProbeTotal,
+			RecentProbeFailures: state.RecentProbeFailures,
+		}
+	}
+
+	missingServiceIDs := make([]uint, 0)
+	for _, serviceID := range serviceIDs {
+		if _, ok := byService[serviceID]; !ok {
+			missingServiceIDs = append(missingServiceIDs, serviceID)
+		}
+	}
+	if len(missingServiceIDs) > 0 {
+		rawStats, err := s.getRawRecentProbeStatsForServices(ctx, missingServiceIDs, limit)
+		if err != nil {
+			if isProbeDataUnavailable(err) {
+				return byService, nil
+			}
+			return nil, err
+		}
+		for serviceID, stats := range rawStats {
+			byService[serviceID] = stats
+		}
+	}
+
+	return byService, nil
+}
+
+func (s *Storage) getRawRecentProbeStats(ctx context.Context, serviceID uint, limit int) (int64, int64, error) {
+	stats, err := s.getRawRecentProbeStatsForServices(ctx, []uint{serviceID}, limit)
+	if err != nil {
+		return 0, 0, err
+	}
+	stat := stats[serviceID]
+	return stat.RecentProbeTotal, stat.RecentProbeFailures, nil
+}
+
+func (s *Storage) getRawRecentProbeStatsForServices(ctx context.Context, serviceIDs []uint, limit int) (map[uint]ProbeStats, error) {
+	byService := make(map[uint]ProbeStats, len(serviceIDs))
+	if len(serviceIDs) == 0 {
+		return byService, nil
+	}
+	if limit <= 0 {
+		limit = algorithm.RecentProbeWindow
+	}
+	if limit > probeRecentResultsCap {
+		limit = probeRecentResultsCap
+	}
+
+	var stats []ProbeStats
+	err := s.db.WithContext(ctx).Raw(`
+		WITH recent AS (
 			SELECT
 				service_id,
 				success,
-				ROW_NUMBER() OVER (PARTITION BY service_id ORDER BY created_at DESC) AS rn
+				ROW_NUMBER() OVER (
+					PARTITION BY service_id
+					ORDER BY created_at DESC, id DESC
+				) AS recent_rank
 			FROM probe_results
 			WHERE service_id = ANY(?)
-		),
-		recent AS (
-			SELECT service_id, success
-			FROM ranked
-			WHERE rn <= ?
 		)
 		SELECT
 			service_id,
 			COUNT(*) AS recent_probe_total,
 			COALESCE(SUM(CASE WHEN success = false THEN 1 ELSE 0 END), 0) AS recent_probe_failures
 		FROM recent
+		WHERE recent_rank <= ?
 		GROUP BY service_id
-	`, pq.Array(serviceIDList), limit).Scan(&stats).Error; err != nil {
-		// Missing probe tables should behave like an empty probe map
-		if isProbeDataUnavailable(err) {
-			return byService, nil
-		}
+	`, pq.Array(toInt64Slice(serviceIDs)), limit).Scan(&stats).Error
+	if err != nil {
 		return nil, err
 	}
 
 	for _, stat := range stats {
 		byService[stat.ServiceID] = stat
 	}
-
 	return byService, nil
 }
 

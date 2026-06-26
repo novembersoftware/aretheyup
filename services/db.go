@@ -33,6 +33,10 @@ var hotStatusIndexes = []hotStatusIndex{
 		statement: "CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_probe_results_created_at ON probe_results (created_at)",
 	},
 	{
+		name:      "idx_probe_recent_results_service_checked_id_desc",
+		statement: "CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_probe_recent_results_service_checked_id_desc ON probe_recent_results (service_id, checked_at DESC, id DESC)",
+	},
+	{
 		name:      "idx_user_reports_service_created_desc",
 		statement: "CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_user_reports_service_created_desc ON user_reports (service_id, created_at DESC)",
 	},
@@ -62,6 +66,8 @@ func MigrateDB(db *gorm.DB) error {
 		&structs.ServiceSubmission{},
 		&structs.UserReport{},
 		&structs.ProbeResult{},
+		&structs.ServiceProbeState{},
+		&structs.ProbeRecentResult{},
 		&structs.ProbeConfig{},
 		&structs.ServiceBaseline{},
 		&structs.Incident{},
