@@ -72,30 +72,14 @@ func TestBuildRegionalReportBreakdown(t *testing.T) {
 
 func TestBuildServiceResponsesFromData(t *testing.T) {
 	// This isolates list-item shaping logic from storage access so expectations stay deterministic.
+	computedAt := time.Date(2026, time.January, 10, 12, 0, 0, 0, time.UTC)
 	rows := []storage.ServiceRow{
-		{ID: 1, Slug: "one", Name: "One", HomepageURL: "https://one.example", Category: "infra", RecentReportCount: 16},
-		{ID: 2, Slug: "two", Name: "Two", HomepageURL: "https://two.example", Category: "infra", RecentReportCount: 2},
-		{ID: 3, Slug: "three", Name: "Three", HomepageURL: "https://three.example", Category: "infra", RecentReportCount: 1},
+		{ID: 1, Slug: "one", Name: "One", HomepageURL: "https://one.example", Category: "infra", Status: string(algorithm.StatusOutage), RecentReportCount: 16, ComputedAt: computedAt},
+		{ID: 2, Slug: "two", Name: "Two", HomepageURL: "https://two.example", Category: "infra", Status: string(algorithm.StatusOperational), RecentReportCount: 2, ComputedAt: computedAt},
+		{ID: 3, Slug: "three", Name: "Three", HomepageURL: "https://three.example", Category: "infra", Status: string(algorithm.StatusDegraded), RecentReportCount: 1, ComputedAt: computedAt},
 	}
 
-	baselines := map[uint]structs.ServiceBaseline{
-		2: {
-			ServiceID:     2,
-			MeanReports:   1,
-			StdDevReports: 1,
-			SampleCount:   4,
-		},
-	}
-
-	probeStats := map[uint]storage.ProbeStats{
-		3: {
-			ServiceID:           3,
-			RecentProbeTotal:    5,
-			RecentProbeFailures: 4,
-		},
-	}
-
-	got := buildServiceResponsesFromData(rows, baselines, probeStats)
+	got := buildServiceResponsesFromData(rows)
 	if len(got) != 3 {
 		t.Fatalf("len(buildServiceResponsesFromData) = %d, want 3", len(got))
 	}
@@ -112,6 +96,9 @@ func TestBuildServiceResponsesFromData(t *testing.T) {
 
 	if got[1].IconURL != "https://s2.googleusercontent.com/s2/favicons?sz=64&domain=https://two.example" {
 		t.Fatalf("unexpected icon URL %q", got[1].IconURL)
+	}
+	if !got[2].ComputedAt.Equal(computedAt) {
+		t.Fatalf("computed_at = %s, want %s", got[2].ComputedAt, computedAt)
 	}
 }
 

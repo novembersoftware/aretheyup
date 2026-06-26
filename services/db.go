@@ -40,6 +40,10 @@ var hotStatusIndexes = []hotStatusIndex{
 		name:      "idx_incidents_active_by_service",
 		statement: "CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_incidents_active_by_service ON incidents (service_id) WHERE resolved_at IS NULL",
 	},
+	{
+		name:      "idx_service_statuses_recent_reports",
+		statement: "CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_service_statuses_recent_reports ON service_statuses (recent_reports DESC, service_id)",
+	},
 }
 
 // NewDB opens a GORM connection to Postgres using the provided DSN and returns it
@@ -64,6 +68,7 @@ func MigrateDB(db *gorm.DB) error {
 		&structs.ProbeResult{},
 		&structs.ProbeConfig{},
 		&structs.ServiceBaseline{},
+		&structs.ServiceStatus{},
 		&structs.Incident{},
 	)
 	if err != nil {

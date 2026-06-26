@@ -12,6 +12,13 @@ import (
 
 const incidentRefreshInterval = time.Minute
 
+type incidentStore interface {
+	GetActiveServiceStatuses(ctx context.Context) ([]structs.ServiceStatus, error)
+	GetActiveIncidentsByServiceIDs(ctx context.Context, serviceIDs []uint) (map[uint]structs.Incident, error)
+	OpenIncidentIfNoneActive(ctx context.Context, serviceID uint, startedAt time.Time) (bool, error)
+	ResolveActiveIncident(ctx context.Context, serviceID uint, resolvedAt time.Time) (bool, error)
+}
+
 func StartIncidentTracker(store *storage.Storage) {
 	log.Info().Dur("interval", incidentRefreshInterval).Msg("Starting incident tracker")
 
@@ -38,33 +45,19 @@ func StartIncidentTracker(store *storage.Storage) {
 	}()
 }
 
-func reconcileIncidents(ctx context.Context, store *storage.Storage, now time.Time) error {
-	// Active services are the only ones considered for incident transitions
-	serviceIDs, err := store.GetActiveServiceIDs(ctx)
+func reconcileIncidents(ctx context.Context, store incidentStore, now time.Time) error {
+	statuses, err := store.GetActiveServiceStatuses(ctx)
 	if err != nil {
 		return err
 	}
 
-	if len(serviceIDs) == 0 {
+	if len(statuses) == 0 {
 		return nil
 	}
 
-	// Gather all algorithm inputs in batches for this cycle
-	reportSince := now.Add(-algorithm.ReportWindow)
-	reportCounts, err := store.GetRecentReportCountsForServices(ctx, serviceIDs, reportSince)
-	if err != nil {
-		return err
-	}
-
-	hourOfWeek := toHourOfWeek(now)
-	baselines, err := store.GetBaselinesForServicesHour(ctx, serviceIDs, hourOfWeek)
-	if err != nil {
-		return err
-	}
-
-	probeStats, err := store.GetRecentProbeStatsForServices(ctx, serviceIDs, algorithm.RecentProbeWindow)
-	if err != nil {
-		return err
+	serviceIDs := make([]uint, 0, len(statuses))
+	for _, status := range statuses {
+		serviceIDs = append(serviceIDs, status.ServiceID)
 	}
 
 	activeIncidents, err := store.GetActiveIncidentsByServiceIDs(ctx, serviceIDs)
@@ -72,30 +65,29 @@ func reconcileIncidents(ctx context.Context, store *storage.Storage, now time.Ti
 		return err
 	}
 
-	for _, serviceID := range serviceIDs {
-		// Reuse the same status calculation path used by API responses
-		status := determineServiceStatus(serviceID, reportCounts, baselines, probeStats)
-		_, hasActiveIncident := activeIncidents[serviceID]
+	for _, snapshot := range statuses {
+		status := statusFromSnapshot(snapshot)
+		_, hasActiveIncident := activeIncidents[snapshot.ServiceID]
 		shouldOpen, shouldResolve := incidentTransition(status, hasActiveIncident)
 
 		if shouldOpen {
-			opened, err := store.OpenIncidentIfNoneActive(ctx, serviceID, now)
+			opened, err := store.OpenIncidentIfNoneActive(ctx, snapshot.ServiceID, now)
 			if err != nil {
 				return err
 			}
 			if opened {
-				log.Info().Uint("service_id", serviceID).Time("started_at", now).Msg("Opened incident")
+				log.Info().Uint("service_id", snapshot.ServiceID).Time("started_at", now).Msg("Opened incident")
 			}
 			continue
 		}
 
 		if shouldResolve {
-			closed, err := store.ResolveActiveIncident(ctx, serviceID, now)
+			closed, err := store.ResolveActiveIncident(ctx, snapshot.ServiceID, now)
 			if err != nil {
 				return err
 			}
 			if closed {
-				log.Info().Uint("service_id", serviceID).Time("resolved_at", now).Msg("Resolved incident")
+				log.Info().Uint("service_id", snapshot.ServiceID).Time("resolved_at", now).Msg("Resolved incident")
 			}
 		}
 	}
@@ -103,29 +95,13 @@ func reconcileIncidents(ctx context.Context, store *storage.Storage, now time.Ti
 	return nil
 }
 
-func determineServiceStatus(
-	serviceID uint,
-	reportCounts map[uint]int64,
-	baselines map[uint]structs.ServiceBaseline,
-	probeStats map[uint]storage.ProbeStats,
-) algorithm.Status {
-	probe := probeStats[serviceID]
-	// Missing map values naturally resolve to zero which is the cold start path
-	signals := algorithm.Signals{
-		RecentReports:       reportCounts[serviceID],
-		RecentProbeTotal:    probe.RecentProbeTotal,
-		RecentProbeFailures: probe.RecentProbeFailures,
+func statusFromSnapshot(snapshot structs.ServiceStatus) algorithm.Status {
+	switch algorithm.Status(snapshot.Status) {
+	case algorithm.StatusOperational, algorithm.StatusDegraded, algorithm.StatusOutage:
+		return algorithm.Status(snapshot.Status)
+	default:
+		return algorithm.StatusOperational
 	}
-
-	if baseline, exists := baselines[serviceID]; exists {
-		signals.ReportBaselineMean = baseline.MeanReports
-		signals.ReportBaselineStdDev = baseline.StdDevReports
-		signals.ReportBaselineWeeks = baseline.SampleCount
-		signals.ProbeBaselineFailureRate = baseline.ProbeFailureRate
-		signals.ProbeBaselineSamples = baseline.ProbeFailureSamples
-	}
-
-	return algorithm.DetermineStatus(signals)
 }
 
 func incidentTransition(status algorithm.Status, hasActiveIncident bool) (bool, bool) {
@@ -136,9 +112,4 @@ func incidentTransition(status algorithm.Status, hasActiveIncident bool) (bool, 
 		return false, true
 	}
 	return false, false
-}
-
-func toHourOfWeek(t time.Time) int {
-	// 0..167 bucket index in UTC
-	return int(t.Weekday())*24 + t.Hour()
 }

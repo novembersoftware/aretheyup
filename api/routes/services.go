@@ -40,11 +40,7 @@ func getServices(c *gin.Context, store *storage.Storage) {
 		rows = rows[:servicesPerPage]
 	}
 
-	response, err := utils.BuildServiceResponses(c, store, rows)
-	if err != nil {
-		utils.Respond(c, 500, "error", gin.H{"error": "Failed to evaluate service status"})
-		return
-	}
+	response := utils.BuildServiceResponses(rows)
 
 	utils.Respond(c, 200, "service-list", gin.H{
 		"services": response,
@@ -69,11 +65,7 @@ func searchServices(c *gin.Context, store *storage.Storage) {
 		return
 	}
 
-	response, err := utils.BuildServiceResponses(c, store, rows)
-	if err != nil {
-		utils.Respond(c, 500, "error", gin.H{"error": "Failed to evaluate service status"})
-		return
-	}
+	response := utils.BuildServiceResponses(rows)
 
 	utils.Respond(c, 200, "service-list", gin.H{
 		"services": response,
@@ -100,6 +92,11 @@ func createServiceReport(c *gin.Context, store *storage.Storage) {
 
 	if err := store.CreateUserReport(c.Request.Context(), &report); err != nil {
 		utils.Respond(c, 500, "error", gin.H{"error": "Failed to create report"})
+		return
+	}
+
+	if _, err := store.RefreshServiceStatus(c.Request.Context(), service.ID, time.Now().UTC()); err != nil {
+		utils.Respond(c, 500, "error", gin.H{"error": "Failed to refresh service status"})
 		return
 	}
 
@@ -147,24 +144,17 @@ func respondServiceCard(c *gin.Context, store *storage.Storage, service *structs
 		rateLimitState = middleware.ReportRateLimitState{CanReport: true}
 	}
 
-	reportWindowStart := now.Add(-algorithm.ReportWindow)
-	recentReports, err := store.CountRecentReports(ctx, service.ID, reportWindowStart)
+	statusSnapshot, err := store.GetServiceStatus(ctx, service.ID)
 	if err != nil {
-		utils.Respond(c, 500, "error", gin.H{"error": "Failed to count recent reports"})
+		utils.Respond(c, 500, "error", gin.H{"error": "Failed to load service status"})
 		return
 	}
-
-	hourOfWeek := utils.ToHourOfWeek(now)
-	baseline, err := store.GetBaselineForServiceHour(ctx, service.ID, hourOfWeek)
-	if err != nil {
-		utils.Respond(c, 500, "error", gin.H{"error": "Failed to load baseline"})
-		return
-	}
-
-	recentProbeTotal, recentProbeFailures, err := store.GetRecentProbeStats(ctx, service.ID, algorithm.RecentProbeWindow)
-	if err != nil {
-		utils.Respond(c, 500, "error", gin.H{"error": "Failed to evaluate probe data"})
-		return
+	if statusSnapshot == nil {
+		statusSnapshot, err = store.RefreshServiceStatus(ctx, service.ID, now)
+		if err != nil {
+			utils.Respond(c, 500, "error", gin.H{"error": "Failed to refresh service status"})
+			return
+		}
 	}
 
 	probeDetail, err := store.GetProbeServiceDetail(ctx, service.ID, 50)
@@ -173,7 +163,8 @@ func respondServiceCard(c *gin.Context, store *storage.Storage, service *structs
 		return
 	}
 
-	status := utils.DetermineStatus(recentReports, baseline, recentProbeTotal, recentProbeFailures)
+	status := algorithm.Status(statusSnapshot.Status)
+	baseline := baselineFromStatusSnapshot(statusSnapshot)
 	probePresentation := utils.BuildProbePresentation(probeDetail)
 
 	histogramSince := now.Truncate(30 * time.Minute).Add(-47 * 30 * time.Minute)
@@ -184,12 +175,13 @@ func respondServiceCard(c *gin.Context, store *storage.Storage, service *structs
 	}
 	histogram := utils.BuildReportHistogram(now, reportBuckets, baseline, status)
 
+	reportWindowStart := now.Add(-algorithm.ReportWindow)
 	regionalCounts, err := store.GetRegionalReportCountsForService(ctx, service.ID, reportWindowStart, 8)
 	if err != nil {
 		utils.Respond(c, 500, "error", gin.H{"error": "Failed to load regional report data"})
 		return
 	}
-	regionalReports := utils.BuildRegionalReportBreakdown(regionalCounts, recentReports)
+	regionalReports := utils.BuildRegionalReportBreakdown(regionalCounts, statusSnapshot.RecentReports)
 
 	windowStartDay := now.Truncate(24*time.Hour).AddDate(0, 0, -89)
 	windowEnd := now
@@ -216,12 +208,19 @@ func respondServiceCard(c *gin.Context, store *storage.Storage, service *structs
 	timeline := utils.BuildIncidentTimeline(incidents, now)
 
 	baselineMean := 0.0
-	alertThreshold := math.Max(1, float64(recentReports))
+	alertThreshold := math.Max(1, float64(statusSnapshot.RecentReports))
 	if baseline != nil {
 		baselineMean = baseline.MeanReports
 		alertThreshold = math.Max(1, baseline.MeanReports+(2*baseline.StdDevReports))
 	}
-	windowUsage := int(math.Min(100, math.Round((float64(recentReports)/alertThreshold)*100)))
+	windowUsage := int(math.Min(100, math.Round((float64(statusSnapshot.RecentReports)/alertThreshold)*100)))
+
+	probeRecentFailures := int(statusSnapshot.RecentProbeFailures)
+	probeRecentTotal := int(statusSnapshot.RecentProbeTotal)
+	probeRecentSuccesses := probeRecentTotal - probeRecentFailures
+	if probeRecentSuccesses < 0 {
+		probeRecentSuccesses = 0
+	}
 
 	response := structs.ServiceDetailResponse{
 		ID:                    service.ID,
@@ -231,7 +230,9 @@ func respondServiceCard(c *gin.Context, store *storage.Storage, service *structs
 		IconURL:               fmt.Sprintf("https://s2.googleusercontent.com/s2/favicons?sz=64&domain=%s", service.HomepageURL),
 		Category:              service.Category,
 		Status:                string(status),
-		RecentReports:         recentReports,
+		ComputedAt:            statusSnapshot.ComputedAt,
+		ComputedAtLabel:       statusSnapshot.ComputedAt.UTC().Format("Jan 2, 3:04 PM MST"),
+		RecentReports:         statusSnapshot.RecentReports,
 		CanReport:             rateLimitState.CanReport,
 		ReportRetryAfterSec:   rateLimitState.RetryAfterSeconds,
 		ReportWindowLabel:     fmt.Sprintf("last %d min", int(algorithm.ReportWindow.Minutes())),
@@ -246,9 +247,9 @@ func respondServiceCard(c *gin.Context, store *storage.Storage, service *structs
 		IncidentTimeline:      timeline,
 		ProbeConfigured:       probeDetail.HasConfig,
 		ProbeEnabled:          probeDetail.Enabled,
-		ProbeRecentTotal:      probePresentation.RecentTotal,
-		ProbeRecentSuccesses:  probePresentation.RecentSuccesses,
-		ProbeRecentFailures:   probePresentation.RecentFailures,
+		ProbeRecentTotal:      probeRecentTotal,
+		ProbeRecentSuccesses:  probeRecentSuccesses,
+		ProbeRecentFailures:   probeRecentFailures,
 		LastProbeCheckedLabel: probePresentation.LastCheckedLabel,
 		LastProbeSuccessLabel: probePresentation.LastSuccessLabel,
 		LastProbeFailureLabel: probePresentation.LastFailureLabel,
@@ -264,4 +265,22 @@ func respondServiceCard(c *gin.Context, store *storage.Storage, service *structs
 		"service":  response,
 		"reported": reported,
 	})
+}
+
+func baselineFromStatusSnapshot(snapshot *structs.ServiceStatus) *structs.ServiceBaseline {
+	if snapshot == nil || snapshot.BaselineSampleCount == 0 {
+		return nil
+	}
+
+	return &structs.ServiceBaseline{
+		ServiceID:            snapshot.ServiceID,
+		HourOfWeek:           snapshot.HourOfWeek,
+		MeanReports:          snapshot.BaselineMeanReports,
+		StdDevReports:        snapshot.BaselineStdDevReports,
+		SampleCount:          snapshot.BaselineSampleCount,
+		ProbeFailureRate:     snapshot.ProbeBaselineFailureRate,
+		ProbeFailureSamples:  snapshot.ProbeBaselineSamples,
+		ProbeLatencyMedianMs: 0,
+		ProbeLatencySamples:  0,
+	}
 }

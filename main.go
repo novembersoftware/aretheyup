@@ -98,6 +98,7 @@ func seedMode(db *gorm.DB) {
 func workerMode(store *storage.Storage) {
 	log.Info().Msg("Starting worker mode")
 	workers.StartBaselineRefresher(store)
+	workers.StartStatusRefresher(store)
 	workers.StartIncidentTracker(store)
 	workers.StartProbeResultCleaner(store)
 
