@@ -34,6 +34,23 @@ type ProbeStats struct {
 	RecentProbeFailures int64 `gorm:"column:recent_probe_failures"`
 }
 
+const probeBaselineRollupQuery = `
+	SELECT
+		hour_of_week,
+		CASE
+			WHEN SUM(total_count) = 0 THEN 0
+			ELSE (SUM(failure_count)::float8 / SUM(total_count))
+		END AS probe_failure_rate,
+		SUM(total_count)::int AS probe_failure_samples,
+		0::float8 AS probe_latency_median_ms,
+		SUM(success_latency_count)::int AS probe_latency_samples
+	FROM probe_hourly_rollups
+	WHERE service_id = ?
+		AND bucket_start >= ?
+		AND bucket_start + interval '1 hour' <= ?::timestamptz
+	GROUP BY hour_of_week
+`
+
 func (s *Storage) RefreshAllBaselines(ctx context.Context, now time.Time) error {
 	// We refresh every active service each cycle so API reads stay simple
 	type serviceSeed struct {
@@ -107,34 +124,21 @@ func (s *Storage) refreshServiceBaselines(ctx context.Context, serviceID uint, c
 		return nil
 	}
 
-	// Probe baseline uses the same hour-of-week bucket strategy, but based on failures
-	var probeBuckets []probeBaselineBucket
-	if err := s.db.WithContext(ctx).Raw(`
-		SELECT
-			(EXTRACT(DOW FROM created_at)::int * 24 + EXTRACT(HOUR FROM created_at)::int) AS hour_of_week,
-			(SUM(CASE WHEN success = false THEN 1 ELSE 0 END)::float8 / COUNT(*)) AS probe_failure_rate,
-			COUNT(*)::int AS probe_failure_samples,
-			COALESCE(
-				PERCENTILE_CONT(0.5) WITHIN GROUP (ORDER BY response_time_ms)
-				FILTER (WHERE success = true AND response_time_ms IS NOT NULL),
-				0
-			)::float8 AS probe_latency_median_ms,
-			COUNT(response_time_ms) FILTER (WHERE success = true AND response_time_ms IS NOT NULL)::int AS probe_latency_samples
-		FROM probe_results
-		WHERE service_id = ?
-			AND created_at >= ?
-			AND created_at <= ?
-		GROUP BY hour_of_week
-	`, serviceID, start, end).Scan(&probeBuckets).Error; err != nil {
-		// Let report baselines continue even when probe storage is not ready yet
-		if !isProbeDataUnavailable(err) {
-			return err
+	// Probe baseline uses the same hour-of-week bucket strategy, but only from
+	// completed hourly rollup buckets that fit fully inside the baseline window.
+	probeByHour := map[int]probeBaselineBucket{}
+	probeRollupStart := ceilToHour(start)
+	if !probeRollupStart.After(end) {
+		var probeBuckets []probeBaselineBucket
+		if err := s.db.WithContext(ctx).Raw(probeBaselineRollupQuery, serviceID, probeRollupStart, end).Scan(&probeBuckets).Error; err != nil {
+			// Let report baselines continue even when probe storage is not ready yet
+			if !isProbeDataUnavailable(err) {
+				return err
+			}
 		}
-	}
-
-	probeByHour := make(map[int]probeBaselineBucket, len(probeBuckets))
-	for _, b := range probeBuckets {
-		probeByHour[b.HourOfWeek] = b
+		for _, b := range probeBuckets {
+			probeByHour[b.HourOfWeek] = b
+		}
 	}
 
 	rows := make([]structs.ServiceBaseline, 0, len(userBuckets))
@@ -328,6 +332,15 @@ func floorToHalfHour(t time.Time) time.Time {
 		minute = 30
 	}
 	return time.Date(t.Year(), t.Month(), t.Day(), t.Hour(), minute, 0, 0, t.Location())
+}
+
+func ceilToHour(t time.Time) time.Time {
+	t = t.UTC()
+	truncated := t.Truncate(time.Hour)
+	if t.Equal(truncated) {
+		return truncated
+	}
+	return truncated.Add(time.Hour)
 }
 
 func toInt64Slice(in []uint) []int64 {

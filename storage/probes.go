@@ -223,8 +223,12 @@ func (s *Storage) CompleteProbeLease(ctx context.Context, configID uint, leaseTo
 			return err
 		}
 
+		if err := upsertServiceProbeState(tx, config.ServiceID, result, checkedAt, recentTotal, recentFailures); err != nil {
+			return err
+		}
+
 		serviceID = config.ServiceID
-		return upsertServiceProbeState(tx, config.ServiceID, result, checkedAt, recentTotal, recentFailures)
+		return upsertProbeHourlyRollup(tx, config.ServiceID, result, checkedAt)
 	})
 	if err != nil {
 		return err
@@ -340,6 +344,68 @@ func countRecentProbeResults(tx *gorm.DB, serviceID uint, limit int) (int64, int
 	return stat.RecentProbeTotal, stat.RecentProbeFailures, err
 }
 
+func upsertProbeHourlyRollup(tx *gorm.DB, serviceID uint, result structs.ProbeResult, checkedAt time.Time) error {
+	checkedAt = checkedAt.UTC()
+	bucketStart := checkedAt.Truncate(time.Hour)
+	now := checkedAt
+
+	latencySum := int64(0)
+	latencyCount := int64(0)
+	var minLatency *int
+	var maxLatency *int
+	if result.Success && result.ResponseTimeMs != nil {
+		latencySum = int64(*result.ResponseTimeMs)
+		latencyCount = 1
+		minLatency = result.ResponseTimeMs
+		maxLatency = result.ResponseTimeMs
+	}
+
+	failureCount := int64(0)
+	if !result.Success {
+		failureCount = 1
+	}
+
+	rollup := structs.ProbeHourlyRollup{
+		ServiceID:           serviceID,
+		BucketStart:         bucketStart,
+		HourOfWeek:          hourOfWeek(bucketStart),
+		TotalCount:          1,
+		FailureCount:        failureCount,
+		SuccessLatencySumMs: latencySum,
+		SuccessLatencyCount: latencyCount,
+		MinLatencyMs:        minLatency,
+		MaxLatencyMs:        maxLatency,
+		CreatedAt:           now,
+		UpdatedAt:           now,
+	}
+
+	return tx.Clauses(clause.OnConflict{
+		Columns: []clause.Column{{Name: "service_id"}, {Name: "bucket_start"}},
+		DoUpdates: clause.Assignments(map[string]any{
+			"hour_of_week":           gorm.Expr("EXCLUDED.hour_of_week"),
+			"total_count":            gorm.Expr("probe_hourly_rollups.total_count + EXCLUDED.total_count"),
+			"failure_count":          gorm.Expr("probe_hourly_rollups.failure_count + EXCLUDED.failure_count"),
+			"success_latency_sum_ms": gorm.Expr("probe_hourly_rollups.success_latency_sum_ms + EXCLUDED.success_latency_sum_ms"),
+			"success_latency_count":  gorm.Expr("probe_hourly_rollups.success_latency_count + EXCLUDED.success_latency_count"),
+			"min_latency_ms": gorm.Expr(`
+				CASE
+					WHEN EXCLUDED.min_latency_ms IS NULL THEN probe_hourly_rollups.min_latency_ms
+					WHEN probe_hourly_rollups.min_latency_ms IS NULL THEN EXCLUDED.min_latency_ms
+					ELSE LEAST(probe_hourly_rollups.min_latency_ms, EXCLUDED.min_latency_ms)
+				END
+			`),
+			"max_latency_ms": gorm.Expr(`
+				CASE
+					WHEN EXCLUDED.max_latency_ms IS NULL THEN probe_hourly_rollups.max_latency_ms
+					WHEN probe_hourly_rollups.max_latency_ms IS NULL THEN EXCLUDED.max_latency_ms
+					ELSE GREATEST(probe_hourly_rollups.max_latency_ms, EXCLUDED.max_latency_ms)
+				END
+			`),
+			"updated_at": gorm.Expr("EXCLUDED.updated_at"),
+		}),
+	}).Create(&rollup).Error
+}
+
 func upsertServiceProbeState(tx *gorm.DB, serviceID uint, result structs.ProbeResult, checkedAt time.Time, recentTotal, recentFailures int64) error {
 	checkedAt = checkedAt.UTC()
 	state := structs.ServiceProbeState{
@@ -395,6 +461,11 @@ func upsertServiceProbeState(tx *gorm.DB, serviceID uint, result structs.ProbeRe
 		Columns:   []clause.Column{{Name: "service_id"}},
 		DoUpdates: clause.Assignments(assignments),
 	}).Create(&state).Error
+}
+
+func hourOfWeek(t time.Time) int {
+	t = t.UTC()
+	return int(t.Weekday())*24 + t.Hour()
 }
 
 func nextProbeRunAt(currentNextRunAt, now time.Time, serviceID uint) time.Time {
