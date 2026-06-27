@@ -33,6 +33,30 @@ var hotStatusIndexes = []hotStatusIndex{
 		statement: "CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_probe_results_created_at ON probe_results (created_at)",
 	},
 	{
+		name:      "idx_probe_results_success_cleanup_created_id",
+		statement: "CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_probe_results_success_cleanup_created_id ON probe_results (created_at ASC, id ASC) WHERE success = true",
+	},
+	{
+		name:      "idx_probe_results_failure_cleanup_created_id",
+		statement: "CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_probe_results_failure_cleanup_created_id ON probe_results (created_at ASC, id ASC) WHERE success = false",
+	},
+	{
+		name:      "idx_probe_recent_results_service_checked_id_desc",
+		statement: "CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_probe_recent_results_service_checked_id_desc ON probe_recent_results (service_id, checked_at DESC, id DESC)",
+	},
+	{
+		name:      "idx_probe_hourly_rollups_service_hour_bucket",
+		statement: "CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_probe_hourly_rollups_service_hour_bucket ON probe_hourly_rollups (service_id, hour_of_week, bucket_start)",
+	},
+	{
+		name:      "idx_service_statuses_recent_reports",
+		statement: "CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_service_statuses_recent_reports ON service_statuses (recent_reports DESC, service_id)",
+	},
+	{
+		name:      "idx_service_statuses_status_computed_at",
+		statement: "CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_service_statuses_status_computed_at ON service_statuses (status, computed_at DESC)",
+	},
+	{
 		name:      "idx_user_reports_service_created_desc",
 		statement: "CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_user_reports_service_created_desc ON user_reports (service_id, created_at DESC)",
 	},
@@ -62,8 +86,12 @@ func MigrateDB(db *gorm.DB) error {
 		&structs.ServiceSubmission{},
 		&structs.UserReport{},
 		&structs.ProbeResult{},
+		&structs.ServiceProbeState{},
+		&structs.ProbeRecentResult{},
+		&structs.ProbeHourlyRollup{},
 		&structs.ProbeConfig{},
 		&structs.ServiceBaseline{},
+		&structs.ServiceStatus{},
 		&structs.Incident{},
 	)
 	if err != nil {
@@ -139,7 +167,7 @@ func buildSeedProbeData(
 	incidents []structs.Incident,
 ) (structs.ProbeConfig, []structs.ProbeResult) {
 	const (
-		intervalSeconds = 15 * 60
+		intervalSeconds = 5 * 60
 		timeoutSeconds  = 10
 		expectedStatus  = 200
 	)
@@ -227,7 +255,7 @@ func buildSeedProbeData(
 		IntervalSeconds: intervalSeconds,
 		TimeoutSeconds:  timeoutSeconds,
 		ExpectedStatus:  expectedStatus,
-		NextRunAt:       now.UTC(),
+		NextRunAt:       now.UTC().Add(time.Duration(r.Intn(intervalSeconds)) * time.Second),
 		LastCheckedAt:   timePtr(lastCheckedAt),
 		LastSuccessAt:   lastSuccessAt,
 	}

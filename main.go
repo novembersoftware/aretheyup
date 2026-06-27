@@ -3,6 +3,8 @@ package main
 import (
 	"context"
 	"os"
+	"os/signal"
+	"syscall"
 	"time"
 
 	"github.com/joho/godotenv"
@@ -45,6 +47,15 @@ func main() {
 		log.Fatal().Err(err).Msg("Failed to migrate database")
 	}
 
+	if flags.Mode == utils.ModeBackfillProbeRollups {
+		backfillProbeRollupsMode(storage.New(db, nil))
+		return
+	}
+	if flags.Mode == utils.ModeBackfillProbeDerived {
+		backfillProbeDerivedMode(storage.New(db, nil))
+		return
+	}
+
 	redis, err := services.NewRedis(config.C.RedisURL)
 	if err != nil {
 		log.Fatal().Err(err).Msg("Failed to connect to Redis")
@@ -66,12 +77,14 @@ func main() {
 		probeMode(store)
 	case utils.ModeSeed:
 		seedMode(db)
+	case utils.ModeWorker:
+		workerMode(store)
 	}
 }
 
 func apiMode(store *storage.Storage) {
-	workers.StartBaselineRefresher(store)
-	workers.StartIncidentTracker(store)
+	log.Info().Str("mode", "api").Msg("Starting API mode")
+	store.StartListCacheStatsLogger(context.Background(), time.Minute)
 	api.Start(store)
 }
 
@@ -82,6 +95,7 @@ func manageMode(store *storage.Storage) {
 }
 
 func probeMode(store *storage.Storage) {
+	log.Info().Str("mode", "probe").Msg("Starting probe mode")
 	if err := workers.RunProbeWorker(store); err != nil {
 		log.Fatal().Err(err).Msg("Probe worker stopped")
 	}
@@ -89,4 +103,54 @@ func probeMode(store *storage.Storage) {
 
 func seedMode(db *gorm.DB) {
 	services.SeedDB(db, flags.SeedCount, flags.SeedClear)
+}
+
+func backfillProbeRollupsMode(store *storage.Storage) {
+	result, err := store.BackfillProbeHourlyRollupsChunked(
+		context.Background(),
+		flags.BackfillProbeRollupsStart,
+		flags.BackfillProbeRollupsEnd,
+		flags.BackfillProbeRollupsChunkDuration,
+	)
+	if err != nil {
+		log.Fatal().Err(err).Msg("Failed to backfill probe hourly rollups")
+	}
+
+	log.Info().
+		Int64("rows_affected", result.RowsAffected).
+		Int("chunks", result.Chunks).
+		Time("start", flags.BackfillProbeRollupsStart).
+		Time("end", flags.BackfillProbeRollupsEnd).
+		Dur("chunk_duration", flags.BackfillProbeRollupsChunkDuration).
+		Msg("Backfilled probe hourly rollups")
+}
+
+func backfillProbeDerivedMode(store *storage.Storage) {
+	result, err := store.BackfillProbeDerived(context.Background(), flags.BackfillProbeDerivedCutoff, flags.BackfillProbeDerivedServiceBatchSize)
+	if err != nil {
+		log.Fatal().Err(err).Msg("Failed to backfill derived probe tables")
+	}
+
+	log.Info().
+		Time("cutoff", flags.BackfillProbeDerivedCutoff).
+		Int("services_scanned", result.ServicesScanned).
+		Int("service_batches", result.ServiceBatches).
+		Int64("recent_rows_inserted", result.RecentRowsInserted).
+		Int64("state_rows_upserted", result.StateRowsUpserted).
+		Msg("Backfilled derived probe tables")
+}
+
+func workerMode(store *storage.Storage) {
+	log.Info().Str("mode", "worker").Msg("Starting worker mode")
+	workers.StartBaselineRefresher(store)
+	workers.StartStatusRefresher(store)
+	workers.StartIncidentTracker(store)
+	workers.StartProbeResultCleaner(store)
+	workers.StartTableStatsLogger(store)
+
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+
+	<-ctx.Done()
+	log.Info().Msg("Worker shutdown requested")
 }

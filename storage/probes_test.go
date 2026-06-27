@@ -79,26 +79,83 @@ func TestDefaultProbeConfig(t *testing.T) {
 	if cfg.URL != "https://example.com" {
 		t.Fatalf("URL = %q, want trimmed homepage URL", cfg.URL)
 	}
-	if !cfg.Enabled || cfg.Method != "GET" || cfg.IntervalSeconds != 60 || cfg.TimeoutSeconds != 10 || cfg.ExpectedStatus != 200 {
+	if !cfg.Enabled || cfg.Method != "GET" || cfg.IntervalSeconds != GlobalProbeIntervalSeconds || cfg.TimeoutSeconds != 10 || cfg.ExpectedStatus != 200 {
 		t.Fatalf("unexpected default config values: %+v", cfg)
 	}
-	if !cfg.NextRunAt.Equal(now) {
-		t.Fatalf("NextRunAt = %s, want %s", cfg.NextRunAt, now)
+	if want := initialProbeRunAt(42, now); !cfg.NextRunAt.Equal(want) {
+		t.Fatalf("NextRunAt = %s, want jittered %s", cfg.NextRunAt, want)
+	}
+}
+
+func TestDefaultProbeConfigJittersInitialRunsAcrossInterval(t *testing.T) {
+	now := time.Date(2026, time.January, 10, 12, 0, 0, 0, time.UTC)
+	seenOffsets := make(map[time.Duration]bool)
+
+	for serviceID := uint(1); serviceID <= 100; serviceID++ {
+		cfg := DefaultProbeConfig(serviceID, "https://example.com", now)
+		offset := cfg.NextRunAt.Sub(now)
+		if offset < 0 || offset >= GlobalProbeInterval {
+			t.Fatalf("service %d jitter offset = %s, want within [0, %s)", serviceID, offset, GlobalProbeInterval)
+		}
+		seenOffsets[offset] = true
+	}
+
+	if len(seenOffsets) < 50 {
+		t.Fatalf("unique jitter offsets = %d, want broad spread across the interval", len(seenOffsets))
 	}
 }
 
 func TestNextProbeRunAt(t *testing.T) {
 	now := time.Date(2026, time.January, 10, 12, 0, 0, 0, time.UTC)
 
-	gotDue := nextProbeRunAt(now.Add(-time.Minute), now, 60)
-	if want := now.Add(time.Minute); !gotDue.Equal(want) {
-		t.Fatalf("nextProbeRunAt(due) = %s, want %s", gotDue, want)
+	tests := []struct {
+		name             string
+		currentNextRunAt time.Time
+		serviceID        uint
+		want             time.Time
+	}{
+		{
+			name:             "due run advances from stored cadence phase",
+			currentNextRunAt: now.Add(-time.Minute),
+			serviceID:        42,
+			want:             now.Add(4 * time.Minute),
+		},
+		{
+			name:             "exactly due run advances one global interval",
+			currentNextRunAt: now,
+			serviceID:        42,
+			want:             now.Add(GlobalProbeInterval),
+		},
+		{
+			name:             "missed intervals preserve stored cadence phase",
+			currentNextRunAt: now.Add(-16 * time.Minute),
+			serviceID:        42,
+			want:             now.Add(4 * time.Minute),
+		},
+		{
+			name:             "future run is kept",
+			currentNextRunAt: now.Add(10 * time.Minute),
+			serviceID:        42,
+			want:             now.Add(10 * time.Minute),
+		},
 	}
 
-	gotRecovered := nextProbeRunAt(now.Add(10*time.Minute), now, 60)
-	if want := now.Add(10 * time.Minute); !gotRecovered.Equal(want) {
-		t.Fatalf("nextProbeRunAt(recovery) = %s, want %s", gotRecovered, want)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := nextProbeRunAt(tt.currentNextRunAt, now, tt.serviceID); !got.Equal(tt.want) {
+				t.Fatalf("nextProbeRunAt() = %s, want %s", got, tt.want)
+			}
+		})
 	}
+
+	t.Run("zero next run gets jittered after one global interval", func(t *testing.T) {
+		got := nextProbeRunAt(time.Time{}, now, 42)
+		min := now.Add(GlobalProbeInterval)
+		max := now.Add(2 * GlobalProbeInterval)
+		if got.Before(min) || !got.Before(max) {
+			t.Fatalf("nextProbeRunAt(zero) = %s, want within [%s, %s)", got, min, max)
+		}
+	})
 }
 
 func TestProbeLeaseDuration(t *testing.T) {

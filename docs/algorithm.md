@@ -13,7 +13,7 @@ It combines two signal families:
 - recent user outage reports
 - recent probe failures
 
-The implementation lives in `algorithm/status.go`. The same logic is reused by API responses and the incident worker through `utils/api-status.go` and `workers/incidents.go`.
+The implementation lives in `algorithm/status.go`. Worker mode writes the current decision and its inputs into `service_statuses`, and API plus incident reads use those rows.
 
 ## Inputs
 
@@ -122,9 +122,19 @@ Status is resolved in this order:
 3. `Degraded` if probes are degraded and neither outage rule fired
 4. `Operational` otherwise
 
+## Status snapshots
+
+`service_statuses` stores the current status decision and the inputs used to make it: recent report count, recent probe counts, the active hour-of-week baseline, and `computed_at`.
+
+- `workers/statuses.go` refreshes snapshots every 30 seconds in `worker` mode
+- the refresh path batches active service IDs, report counts, baselines, and probe state reads before upserting snapshots
+- API list, search, and detail reads use the current snapshot row
+- incident reconciliation reads the current snapshot row
+- list/detail response caches are invalidated when reports, probe configs, or refreshed snapshots change status inputs
+
 ## Incident behavior
 
-The incident worker recalculates status once per minute for active services.
+The incident worker reconciles status once per minute for active services from `service_statuses`.
 
 - incidents open only on transitions into `Outage`
 - incidents resolve as soon as status leaves `Outage`
@@ -136,8 +146,10 @@ Recent probe inputs are produced by the separate `probe` runtime mode.
 
 - `workers/probe.go` claims due enabled probe configs for active services
 - each run writes one `probe_results` row with status code, latency, and normalized failure type
-- request-time probe summaries read the latest rows through `storage.GetRecentProbeStats` and `storage.GetProbeServiceDetail`
-- raw probe history is retained for 30 days before cleanup
+- each completed probe also writes `probe_recent_results`, which is capped at the latest 50 rows per service for UI and debugging history
+- each completed probe also updates the service's current UTC hourly rollup in `probe_hourly_rollups`
+- request-time probe summaries read the latest capped rows through `storage.GetRecentProbeStats` and `storage.GetProbeServiceDetail`
+- raw success rows are retained for 24 hours and raw failure rows are retained for 14 days by worker-mode cleanup; run historical backfills before starting cleanup against existing production data
 
 Failure-type normalization is implemented in `workers/probe_failure.go` and `structs/probe_failure.go`.
 
@@ -154,14 +166,39 @@ Report baseline generation in `storage/baselines.go`:
 - rolls those windows into `hour_of_week` buckets (`0..167`, UTC)
 - stores mean reports, standard deviation, and weekly sample count per bucket
 
-Probe baseline generation uses the same hour-of-week buckets over `probe_results` and stores:
+Probe baseline generation uses the same hour-of-week buckets over `probe_hourly_rollups`, so refresh runtime depends on compact hourly aggregates rather than raw probe history size. The rollups are updated during probe completion and can be rebuilt from raw history with `backfill-probe-rollups`.
+
+Probe baselines store:
 
 - average failure rate
 - probe sample count
-- median success latency
-- latency sample count
+- success latency sample count
 
-If probe tables are unavailable, report baselines still continue and probe data simply behaves like no probe signal.
+`probe_latency_median_ms` remains in the schema for compatibility, but baseline refresh currently writes `0` because it no longer calculates median latency from raw probe rows.
+
+Hourly rollup buckets retain success-only latency sums, counts, minimums, and maximums for future latency baseline work, but those values are not part of the current status decision.
+
+If probe rollup tables are unavailable, report baselines still continue and probe data simply behaves like no probe signal.
+
+The raw `probe_results` table is still used for ingestion, cleanup, and one-time rollup backfills. Recent UI/debug history comes from `probe_recent_results`, so raw success retention can stay short without removing the latest per-service samples.
+
+Rollup backfill command:
+
+```bash
+aretheyup backfill-probe-rollups --start 2026-01-01T00:00:00Z --end 2026-02-01T00:00:00Z --chunk-duration 24h
+```
+
+The rollup backfill is idempotent: conflicting hourly buckets are replaced with aggregates calculated from raw rows. Use UTC hour-aligned `--start` and `--end` values so chunks never split an hourly bucket. `--chunk-duration` defaults to `24h`; set it to `0` to process the full range in one query. Run historical rollup backfills before starting worker cleanup against existing production data. After cleanup removes raw success rows, raw history is no longer complete enough to rebuild older rollup windows accurately.
+
+Derived probe backfill command:
+
+```bash
+aretheyup backfill-probe-derived --cutoff 2026-02-01T00:00:00Z --service-batch-size 500
+```
+
+The derived backfill rebuilds `probe_recent_results` from raw rows before the fixed cutoff, preserves the 50-row recent-history cap, and upserts `service_probe_states` only when the existing state is not newer than the backfilled latest raw row. Re-run it with the same cutoff for idempotence.
+
+Median latency is intentionally omitted from refresh work unless it becomes product-critical.
 
 ## Test coverage
 
@@ -182,7 +219,9 @@ Relevant files:
 - `utils/api-status.go`
 - `utils/api-builders.go`
 - `utils/probes.go`
+- `storage/statuses.go`
 - `workers/incidents.go`
+- `workers/statuses.go`
 - `workers/probe.go`
 - `workers/probe_failure.go`
 - `storage/baselines.go`

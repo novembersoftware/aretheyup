@@ -9,6 +9,9 @@ x-app: &app
       DB_DSN: ${DB_DSN:-postgres://aretheyup:aretheyup@postgres:5432/aretheyup?sslmode=disable}
       REDIS_URL: ${REDIS_URL:-redis://redis:6379/0}
       ALLOWED_PAGE_ORIGINS: ${ALLOWED_PAGE_ORIGINS:-https://aretheyup.com,https://www.aretheyup.com}
+      STATUS_SNAPSHOT_API_READS_ENABLED: ${STATUS_SNAPSHOT_API_READS_ENABLED:-false}
+      STATUS_SNAPSHOT_INCIDENT_READS_ENABLED: ${STATUS_SNAPSHOT_INCIDENT_READS_ENABLED:-false}
+      RAW_PROBE_RETENTION_CLEANUP_ENABLED: ${RAW_PROBE_RETENTION_CLEANUP_ENABLED:-false}
     restart: unless-stopped
 
 services:
@@ -25,6 +28,12 @@ services:
     container_name: aretheyup-probe
     profiles: ["probe", "app"]
     command: ["probe"]
+
+  worker:
+    <<: *app
+    container_name: aretheyup-worker
+    profiles: ["worker", "app"]
+    command: ["worker"]
 
   postgres:
     image: postgres:16-alpine

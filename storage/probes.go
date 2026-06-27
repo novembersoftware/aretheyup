@@ -3,11 +3,15 @@ package storage
 import (
 	"context"
 	"crypto/rand"
+	"encoding/binary"
 	"encoding/hex"
 	"errors"
+	"fmt"
+	"hash/fnv"
 	"strings"
 	"time"
 
+	"github.com/novembersoftware/aretheyup/algorithm"
 	"github.com/novembersoftware/aretheyup/structs"
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
@@ -16,6 +20,11 @@ import (
 const (
 	defaultProbeClaimBatchSize = 16
 	minProbeLeaseDuration      = time.Minute
+	probeRecentResultsCap      = 50
+	// GlobalProbeInterval is the product-wide cadence for enabled probes.
+	GlobalProbeInterval = 5 * time.Minute
+	// GlobalProbeIntervalSeconds is kept for the legacy interval_seconds column.
+	GlobalProbeIntervalSeconds = int(GlobalProbeInterval / time.Second)
 )
 
 var errProbeLeaseNotFound = errors.New("probe lease not found")
@@ -44,10 +53,10 @@ func DefaultProbeConfig(serviceID uint, homepageURL string, now time.Time) struc
 		Enabled:         true,
 		URL:             strings.TrimSpace(homepageURL),
 		Method:          "GET",
-		IntervalSeconds: 60,
+		IntervalSeconds: GlobalProbeIntervalSeconds,
 		TimeoutSeconds:  10,
 		ExpectedStatus:  200,
-		NextRunAt:       now.UTC(),
+		NextRunAt:       initialProbeRunAt(serviceID, now),
 	}
 }
 
@@ -129,7 +138,7 @@ func (s *Storage) ClaimDueProbeConfigs(ctx context.Context, now time.Time, limit
 			}
 
 			leaseExpiresAt := now.Add(probeLeaseDuration(configs[i].TimeoutSeconds))
-			nextRunAt := nextProbeRunAt(configs[i].NextRunAt, now, configs[i].IntervalSeconds)
+			nextRunAt := nextProbeRunAt(configs[i].NextRunAt, now, configs[i].ServiceID)
 			if err := tx.Model(&structs.ProbeConfig{}).
 				Where("id = ?", configs[i].ID).
 				Updates(map[string]any{
@@ -156,7 +165,8 @@ func (s *Storage) ClaimDueProbeConfigs(ctx context.Context, now time.Time, limit
 }
 
 func (s *Storage) CompleteProbeLease(ctx context.Context, configID uint, leaseToken string, result structs.ProbeResult, checkedAt time.Time) error {
-	return s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+	var serviceID uint
+	err := s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		var config structs.ProbeConfig
 		if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).
 			Where("id = ? AND lease_token = ? AND lease_expires_at IS NOT NULL AND lease_expires_at > ?", configID, leaseToken, checkedAt).
@@ -187,24 +197,123 @@ func (s *Storage) CompleteProbeLease(ctx context.Context, configID uint, leaseTo
 		result.ServiceID = config.ServiceID
 		result.CreatedAt = checkedAt
 		result.UpdatedAt = checkedAt
-		return tx.Create(&result).Error
-	})
-}
+		if err := tx.Create(&result).Error; err != nil {
+			return err
+		}
 
-func (s *Storage) DeleteProbeResultsOlderThan(ctx context.Context, cutoff time.Time) (int64, error) {
-	result := s.db.WithContext(ctx).
-		Where("created_at < ?", cutoff).
-		Delete(&structs.ProbeResult{})
-	if result.Error != nil {
-		return 0, result.Error
+		recentResult := structs.ProbeRecentResult{
+			ServiceID:      config.ServiceID,
+			CheckedAt:      checkedAt,
+			Success:        result.Success,
+			StatusCode:     result.StatusCode,
+			ResponseTimeMs: result.ResponseTimeMs,
+			FailureType:    result.FailureType,
+			ErrorMessage:   result.ErrorMessage,
+			CreatedAt:      checkedAt,
+			UpdatedAt:      checkedAt,
+		}
+		if err := tx.Create(&recentResult).Error; err != nil {
+			return err
+		}
+		if err := pruneProbeRecentResults(tx, config.ServiceID); err != nil {
+			return err
+		}
+
+		recentTotal, recentFailures, err := countRecentProbeResults(tx, config.ServiceID, algorithm.RecentProbeWindow)
+		if err != nil {
+			return err
+		}
+
+		if err := upsertServiceProbeState(tx, config.ServiceID, result, checkedAt, recentTotal, recentFailures); err != nil {
+			return err
+		}
+
+		serviceID = config.ServiceID
+		return upsertProbeHourlyRollup(tx, config.ServiceID, result, checkedAt)
+	})
+	if err != nil {
+		return err
 	}
 
-	return result.RowsAffected, nil
+	s.invalidateServiceCachesByID(ctx, serviceID)
+	return nil
+}
+
+func (s *Storage) DeleteExpiredRawProbeResults(ctx context.Context, successCutoff, failureCutoff time.Time, batchSize, maxBatches int) (int64, int, error) {
+	if batchSize <= 0 || maxBatches <= 0 {
+		return 0, 0, nil
+	}
+
+	successCutoff = successCutoff.UTC()
+	failureCutoff = failureCutoff.UTC()
+
+	session := s.db.WithContext(ctx).Session(&gorm.Session{SkipDefaultTransaction: true})
+	successDeleted, successBatches, err := deleteExpiredRawProbeResultBatches(session, true, successCutoff, batchSize, maxBatches)
+	if err != nil {
+		return successDeleted, successBatches, err
+	}
+
+	failureDeleted, failureBatches, err := deleteExpiredRawProbeResultBatches(session, false, failureCutoff, batchSize, maxBatches)
+	if err != nil {
+		return successDeleted + failureDeleted, successBatches + failureBatches, err
+	}
+
+	return successDeleted + failureDeleted, successBatches + failureBatches, nil
+}
+
+func deleteExpiredRawProbeResultBatches(db *gorm.DB, success bool, cutoff time.Time, batchSize, maxBatches int) (int64, int, error) {
+	var totalDeleted int64
+	batches := 0
+	successPredicate := "success = FALSE"
+	if success {
+		successPredicate = "success = TRUE"
+	}
+
+	for batches < maxBatches {
+		result := db.Exec(fmt.Sprintf(`
+			WITH expired AS (
+				SELECT id
+				FROM probe_results
+				WHERE %s
+					AND created_at < ?
+				ORDER BY created_at ASC, id ASC
+				LIMIT ?
+				FOR UPDATE SKIP LOCKED
+			)
+			DELETE FROM probe_results
+			USING expired
+			WHERE probe_results.id = expired.id
+		`, successPredicate), cutoff, batchSize)
+		if result.Error != nil {
+			return totalDeleted, batches, result.Error
+		}
+		if result.RowsAffected == 0 {
+			break
+		}
+
+		totalDeleted += result.RowsAffected
+		batches++
+		if result.RowsAffected < int64(batchSize) {
+			break
+		}
+	}
+
+	return totalDeleted, batches, nil
+}
+
+func (s *Storage) VacuumAnalyzeProbeResults(ctx context.Context) error {
+	return s.db.WithContext(ctx).
+		Session(&gorm.Session{SkipDefaultTransaction: true}).
+		Exec("VACUUM (ANALYZE) probe_results").
+		Error
 }
 
 func (s *Storage) GetProbeServiceDetail(ctx context.Context, serviceID uint, limit int) (ProbeServiceDetail, error) {
 	if limit <= 0 {
 		limit = 10
+	}
+	if limit > probeRecentResultsCap {
+		limit = probeRecentResultsCap
 	}
 
 	var detail ProbeServiceDetail
@@ -218,22 +327,33 @@ func (s *Storage) GetProbeServiceDetail(ctx context.Context, serviceID uint, lim
 
 	detail.HasConfig = true
 	detail.Enabled = config.Enabled
-	detail.LastCheckedAt = config.LastCheckedAt
-	detail.LastSuccessAt = config.LastSuccessAt
 
-	var historyRows []structs.ProbeResult
+	var state structs.ServiceProbeState
+	if err := s.db.WithContext(ctx).Where("service_id = ?", serviceID).First(&state).Error; err == nil {
+		detail.LastCheckedAt = state.LastCheckedAt
+		detail.LastSuccessAt = state.LastSuccessAt
+		detail.LastFailureAt = state.LastFailureAt
+	} else if err != nil && !errors.Is(err, gorm.ErrRecordNotFound) {
+		if !isProbeDataUnavailable(err) {
+			return detail, err
+		}
+	}
+
+	var historyRows []structs.ProbeRecentResult
 	if err := s.db.WithContext(ctx).
 		Where("service_id = ?", serviceID).
-		Order("created_at DESC").
+		Order("checked_at DESC, id DESC").
 		Limit(limit).
 		Find(&historyRows).Error; err != nil {
-		return detail, err
+		if !isProbeDataUnavailable(err) {
+			return detail, err
+		}
 	}
 
 	detail.History = make([]ProbeHistoryRow, len(historyRows))
 	for i, row := range historyRows {
 		detail.History[i] = ProbeHistoryRow{
-			CheckedAt:      row.CreatedAt.UTC(),
+			CheckedAt:      row.CheckedAt.UTC(),
 			Success:        row.Success,
 			StatusCode:     row.StatusCode,
 			ResponseTimeMs: row.ResponseTimeMs,
@@ -242,31 +362,201 @@ func (s *Storage) GetProbeServiceDetail(ctx context.Context, serviceID uint, lim
 		}
 	}
 
-	var lastFailure structs.ProbeResult
-	if err := s.db.WithContext(ctx).
-		Where("service_id = ? AND success = ?", serviceID, false).
-		Order("created_at DESC").
-		Limit(1).
-		First(&lastFailure).Error; err == nil {
-		lastFailureAt := lastFailure.CreatedAt.UTC()
-		detail.LastFailureAt = &lastFailureAt
-	} else if err != nil && !errors.Is(err, gorm.ErrRecordNotFound) {
-		return detail, err
-	}
-
 	return detail, nil
 }
 
-func nextProbeRunAt(currentNextRunAt, now time.Time, intervalSeconds int) time.Time {
-	if intervalSeconds <= 0 {
-		intervalSeconds = 60
+func pruneProbeRecentResults(tx *gorm.DB, serviceID uint) error {
+	return tx.Exec(`
+		DELETE FROM probe_recent_results
+		WHERE service_id = ?
+			AND id NOT IN (
+				SELECT id
+				FROM probe_recent_results
+				WHERE service_id = ?
+				ORDER BY checked_at DESC, id DESC
+				LIMIT ?
+			)
+	`, serviceID, serviceID, probeRecentResultsCap).Error
+}
+
+func countRecentProbeResults(tx *gorm.DB, serviceID uint, limit int) (int64, int64, error) {
+	if limit <= 0 {
+		limit = algorithm.RecentProbeWindow
+	}
+	if limit > probeRecentResultsCap {
+		limit = probeRecentResultsCap
 	}
 
+	var stat ProbeStats
+	err := tx.Raw(`
+		SELECT
+			COUNT(*) AS recent_probe_total,
+			COALESCE(SUM(CASE WHEN success = false THEN 1 ELSE 0 END), 0) AS recent_probe_failures
+		FROM (
+			SELECT success
+			FROM probe_recent_results
+			WHERE service_id = ?
+			ORDER BY checked_at DESC, id DESC
+			LIMIT ?
+		) AS recent
+	`, serviceID, limit).Scan(&stat).Error
+	return stat.RecentProbeTotal, stat.RecentProbeFailures, err
+}
+
+func upsertProbeHourlyRollup(tx *gorm.DB, serviceID uint, result structs.ProbeResult, checkedAt time.Time) error {
+	checkedAt = checkedAt.UTC()
+	bucketStart := checkedAt.Truncate(time.Hour)
+	now := checkedAt
+
+	latencySum := int64(0)
+	latencyCount := int64(0)
+	var minLatency *int
+	var maxLatency *int
+	if result.Success && result.ResponseTimeMs != nil {
+		latencySum = int64(*result.ResponseTimeMs)
+		latencyCount = 1
+		minLatency = result.ResponseTimeMs
+		maxLatency = result.ResponseTimeMs
+	}
+
+	failureCount := int64(0)
+	if !result.Success {
+		failureCount = 1
+	}
+
+	rollup := structs.ProbeHourlyRollup{
+		ServiceID:           serviceID,
+		BucketStart:         bucketStart,
+		HourOfWeek:          hourOfWeek(bucketStart),
+		TotalCount:          1,
+		FailureCount:        failureCount,
+		SuccessLatencySumMs: latencySum,
+		SuccessLatencyCount: latencyCount,
+		MinLatencyMs:        minLatency,
+		MaxLatencyMs:        maxLatency,
+		CreatedAt:           now,
+		UpdatedAt:           now,
+	}
+
+	return tx.Clauses(clause.OnConflict{
+		Columns: []clause.Column{{Name: "service_id"}, {Name: "bucket_start"}},
+		DoUpdates: clause.Assignments(map[string]any{
+			"hour_of_week":           gorm.Expr("EXCLUDED.hour_of_week"),
+			"total_count":            gorm.Expr("probe_hourly_rollups.total_count + EXCLUDED.total_count"),
+			"failure_count":          gorm.Expr("probe_hourly_rollups.failure_count + EXCLUDED.failure_count"),
+			"success_latency_sum_ms": gorm.Expr("probe_hourly_rollups.success_latency_sum_ms + EXCLUDED.success_latency_sum_ms"),
+			"success_latency_count":  gorm.Expr("probe_hourly_rollups.success_latency_count + EXCLUDED.success_latency_count"),
+			"min_latency_ms": gorm.Expr(`
+				CASE
+					WHEN EXCLUDED.min_latency_ms IS NULL THEN probe_hourly_rollups.min_latency_ms
+					WHEN probe_hourly_rollups.min_latency_ms IS NULL THEN EXCLUDED.min_latency_ms
+					ELSE LEAST(probe_hourly_rollups.min_latency_ms, EXCLUDED.min_latency_ms)
+				END
+			`),
+			"max_latency_ms": gorm.Expr(`
+				CASE
+					WHEN EXCLUDED.max_latency_ms IS NULL THEN probe_hourly_rollups.max_latency_ms
+					WHEN probe_hourly_rollups.max_latency_ms IS NULL THEN EXCLUDED.max_latency_ms
+					ELSE GREATEST(probe_hourly_rollups.max_latency_ms, EXCLUDED.max_latency_ms)
+				END
+			`),
+			"updated_at": gorm.Expr("EXCLUDED.updated_at"),
+		}),
+	}).Create(&rollup).Error
+}
+
+func upsertServiceProbeState(tx *gorm.DB, serviceID uint, result structs.ProbeResult, checkedAt time.Time, recentTotal, recentFailures int64) error {
+	checkedAt = checkedAt.UTC()
+	state := structs.ServiceProbeState{
+		ServiceID:              serviceID,
+		LastCheckedAt:          &checkedAt,
+		LastResultSuccess:      result.Success,
+		LastStatusCode:         result.StatusCode,
+		LastResponseTimeMs:     result.ResponseTimeMs,
+		LastResultFailureType:  structs.NormalizeProbeFailureType(result.Success, result.FailureType),
+		LastResultErrorMessage: result.ErrorMessage,
+		RecentProbeTotal:       recentTotal,
+		RecentProbeFailures:    recentFailures,
+		RecentWindowUpdatedAt:  &checkedAt,
+		CreatedAt:              checkedAt,
+		UpdatedAt:              checkedAt,
+	}
+
+	assignments := map[string]any{
+		"last_checked_at":           checkedAt,
+		"last_result_success":       result.Success,
+		"last_status_code":          result.StatusCode,
+		"last_response_time_ms":     result.ResponseTimeMs,
+		"last_result_failure_type":  state.LastResultFailureType,
+		"last_result_error_message": result.ErrorMessage,
+		"recent_probe_total":        recentTotal,
+		"recent_probe_failures":     recentFailures,
+		"recent_window_updated_at":  checkedAt,
+		"updated_at":                checkedAt,
+	}
+
+	if result.Success {
+		state.LastSuccessAt = &checkedAt
+		state.LastSuccessStatusCode = result.StatusCode
+		state.LastSuccessResponseTimeMs = result.ResponseTimeMs
+		assignments["last_success_at"] = checkedAt
+		assignments["last_success_status_code"] = result.StatusCode
+		assignments["last_success_response_time_ms"] = result.ResponseTimeMs
+	} else {
+		failureType := structs.NormalizeProbeFailureType(false, result.FailureType)
+		state.LastFailureAt = &checkedAt
+		state.LastFailureStatusCode = result.StatusCode
+		state.LastFailureResponseTimeMs = result.ResponseTimeMs
+		state.LastFailureType = failureType
+		state.LastFailureErrorMessage = result.ErrorMessage
+		assignments["last_failure_at"] = checkedAt
+		assignments["last_failure_status_code"] = result.StatusCode
+		assignments["last_failure_response_time_ms"] = result.ResponseTimeMs
+		assignments["last_failure_type"] = failureType
+		assignments["last_failure_error_message"] = result.ErrorMessage
+	}
+
+	return tx.Clauses(clause.OnConflict{
+		Columns:   []clause.Column{{Name: "service_id"}},
+		DoUpdates: clause.Assignments(assignments),
+	}).Create(&state).Error
+}
+
+func hourOfWeek(t time.Time) int {
+	t = t.UTC()
+	return int(t.Weekday())*24 + t.Hour()
+}
+
+func nextProbeRunAt(currentNextRunAt, now time.Time, serviceID uint) time.Time {
+	now = now.UTC()
+	if currentNextRunAt.IsZero() {
+		return now.Add(GlobalProbeInterval + probeJitterForService(serviceID)).UTC()
+	}
+
+	currentNextRunAt = currentNextRunAt.UTC()
 	if currentNextRunAt.After(now) {
-		return currentNextRunAt.UTC()
+		return currentNextRunAt
 	}
 
-	return now.Add(time.Duration(intervalSeconds) * time.Second).UTC()
+	missedIntervals := now.Sub(currentNextRunAt)/GlobalProbeInterval + 1
+	return currentNextRunAt.Add(missedIntervals * GlobalProbeInterval).UTC()
+}
+
+func initialProbeRunAt(serviceID uint, now time.Time) time.Time {
+	return now.UTC().Add(probeJitterForService(serviceID)).UTC()
+}
+
+func probeJitterForService(serviceID uint) time.Duration {
+	// Hash the stable service ID into a deterministic offset so config backfills
+	// spread across the cadence window without changing phase on worker restart.
+	var buf [8]byte
+	binary.LittleEndian.PutUint64(buf[:], uint64(serviceID))
+
+	hash := fnv.New64a()
+	_, _ = hash.Write(buf[:])
+
+	slots := uint64(GlobalProbeInterval / time.Second)
+	return time.Duration(hash.Sum64()%slots) * time.Second
 }
 
 func shouldClaimProbeConfig(cfg structs.ProbeConfig, now time.Time) bool {

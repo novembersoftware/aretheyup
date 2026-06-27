@@ -4,17 +4,19 @@
 
 The checked-in production deployment path is `docker-compose.prod.yml`.
 
-It defines four services behind explicit Docker Compose profiles:
+It defines app and dependency services behind explicit Docker Compose profiles:
 
 - `api` profile: starts the public HTTP server on `API_PORT`
 - `probe` profile: starts the synthetic probe worker
-- `app` profile: starts both `api` and `probe`
+- `worker` profile: starts recurring database jobs
+- `app` profile: starts `api`, `probe`, and `worker`
 - `deps` profile: starts PostgreSQL 16 and Redis 7
 
-The `api` and `probe` services use the same image built from `Dockerfile`, but each has an explicit runtime command:
+The `api`, `probe`, and `worker` services use the same image built from `Dockerfile`, but each has an explicit runtime command:
 
 - `api` runs `command: ["api"]`
 - `probe` runs `command: ["probe"]`
+- `worker` runs `command: ["worker"]`
 
 That split is implemented in `main.go`, `utils/parse-flags.go`, and `docker-compose.prod.yml`.
 
@@ -61,7 +63,15 @@ Use this when PostgreSQL and Redis are already reachable, either from managed se
 docker compose -f docker-compose.prod.yml --profile probe up -d --build
 ```
 
-### Start both app processes together
+### Start only the database worker
+
+Use this when PostgreSQL and Redis are already reachable, either from managed services or from a separately started `deps` profile. Keep a single worker active unless recurring jobs are protected with advisory locks.
+
+```bash
+docker compose -f docker-compose.prod.yml --profile worker up -d --build
+```
+
+### Start all app processes together
 
 ```bash
 docker compose -f docker-compose.prod.yml --profile app up -d --build
@@ -88,14 +98,17 @@ Each app container, whether started alone or through `app`:
 - loads configuration
 - opens PostgreSQL and Redis
 - runs GORM migrations
-- backfills any missing default probe configs from service `HomepageURL`
+- backfills any missing default probe configs from service `HomepageURL` with jittered initial probe times
 
 After that, the runtimes diverge:
 
-- `api` starts the baseline refresher, incident tracker, and Gin server
-- `probe` starts the synthetic probe worker loop and raw probe cleanup loop
+- `api` starts only the Gin server
+- `probe` starts only the synthetic probe worker loop; due checks run on the global 5-minute service cadence
+- `worker` starts baseline refresh, status snapshot refresh, incident reconciliation, raw probe cleanup, and table-stat logging loops
 
-This behavior is implemented in `main.go`, `services/db.go`, `services/redis.go`, `storage/probes.go`, `workers/baseline.go`, `workers/incidents.go`, and `workers/probe.go`.
+API list/detail reads and incident reconciliation use `service_statuses`. Raw probe cleanup deletes expired success and failure rows in batches, so run historical backfills before starting worker mode against an existing production dataset.
+
+This behavior is implemented in `main.go`, `services/db.go`, `services/redis.go`, `storage/probes.go`, `storage/statuses.go`, `workers/baseline.go`, `workers/statuses.go`, `workers/incidents.go`, `workers/probe.go`, and `workers/cleanup.go`.
 
 ## Verify the deployment
 
@@ -104,6 +117,7 @@ After startup, verify:
 - `GET /` returns the public index page from the `api` container
 - `GET /robots.txt` and `GET /sitemap.xml` reflect the intended `SITE_BASE_URL`
 - the `probe` container remains running when the `probe` or `app` profile is active
+- exactly one `worker` container remains running when recurring database jobs are enabled
 - enabled services begin accumulating fresh `probe_results`
 
 Useful commands:
@@ -111,9 +125,34 @@ Useful commands:
 ```bash
 docker compose -f docker-compose.prod.yml logs api --tail=100
 docker compose -f docker-compose.prod.yml logs probe --tail=100
+docker compose -f docker-compose.prod.yml logs worker --tail=100
 ```
 
-The probe worker should log work for due enabled probe configs. If you intend to serve probe-backed status data, the API process should not be the only app container running.
+The probe worker should log work for due enabled probe configs. The worker should log baseline, status refresh, incident, cleanup, and table-stat startup. If you intend to serve probe-backed status data, the API process should not be the only app container running.
+
+## Derived-table rollout
+
+Use this order when moving an existing deployment to the derived read model:
+
+1. Backfill hourly probe rollups in chunks before starting the new worker against historical raw probe data:
+
+```bash
+aretheyup backfill-probe-rollups --start 2026-01-01T00:00:00Z --end 2026-02-01T00:00:00Z --chunk-duration 24h
+```
+
+Use UTC hour-aligned `--start` and `--end` values. Chunk durations must be whole-hour multiples so the command never splits an hourly rollup bucket across chunks.
+
+2. Capture a fixed cutoff and backfill derived probe state/recent history:
+
+```bash
+aretheyup backfill-probe-derived --cutoff 2026-02-01T00:00:00Z --service-batch-size 500
+```
+
+3. Run `worker` so `service_statuses` refreshes.
+4. Watch response shape, slow queries, cache behavior, `service_statuses.computed_at` freshness, and incident open/resolve behavior.
+5. Confirm raw probe cleanup is deleting only rows older than the intended retention windows.
+
+Rollback is to redeploy the previous version; derived writes and refreshes can keep running while you investigate.
 
 ## Updates and shutdown
 
@@ -129,7 +168,7 @@ To stop the stack:
 docker compose -f docker-compose.prod.yml down
 ```
 
-Use `down` without `-v` if you want to preserve the checked-in Postgres and Redis volumes. If you started only one profile, you can stop just that service with `docker compose -f docker-compose.prod.yml stop api` or `stop probe`.
+Use `down` without `-v` if you want to preserve the checked-in Postgres and Redis volumes. If you started only one profile, you can stop just that service with `docker compose -f docker-compose.prod.yml stop api`, `stop probe`, or `stop worker`.
 
 Relevant files:
 
@@ -140,8 +179,13 @@ Relevant files:
 - `services/db.go`
 - `services/redis.go`
 - `storage/probes.go`
+- `storage/probe_rollups.go`
+- `storage/probe_derived_backfill.go`
+- `storage/statuses.go`
 - `workers/baseline.go`
+- `workers/statuses.go`
 - `workers/incidents.go`
 - `workers/probe.go`
+- `workers/cleanup.go`
 - `api/routes/seo.go`
 - `utils/utils.go`

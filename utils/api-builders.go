@@ -6,7 +6,6 @@ import (
 	"sort"
 	"time"
 
-	"github.com/gin-gonic/gin"
 	"github.com/novembersoftware/aretheyup/algorithm"
 	"github.com/novembersoftware/aretheyup/storage"
 	"github.com/novembersoftware/aretheyup/structs"
@@ -43,36 +42,21 @@ func BuildRegionalReportBreakdown(regionalCounts []storage.RegionalReportCount, 
 	return response
 }
 
-func BuildServiceResponses(c *gin.Context, store *storage.Storage, rows []storage.ServiceRow) ([]structs.ServiceResponse, error) {
-	serviceIDs := make([]uint, 0, len(rows))
-	for _, row := range rows {
-		serviceIDs = append(serviceIDs, row.ID)
-	}
-
-	hourOfWeek := ToHourOfWeek(time.Now().UTC())
-	baselines, err := store.GetBaselinesForServicesHour(c.Request.Context(), serviceIDs, hourOfWeek)
-	if err != nil {
-		return nil, err
-	}
-
-	probeStats, err := store.GetRecentProbeStatsForServices(c.Request.Context(), serviceIDs, algorithm.RecentProbeWindow)
-	if err != nil {
-		return nil, err
-	}
-
-	return buildServiceResponsesFromData(rows, baselines, probeStats), nil
+func BuildServiceResponses(rows []storage.ServiceRow) []structs.ServiceResponse {
+	return buildServiceResponsesFromData(rows)
 }
 
-func buildServiceResponsesFromData(
-	rows []storage.ServiceRow,
-	baselines map[uint]structs.ServiceBaseline,
-	probeStats map[uint]storage.ProbeStats,
-) []structs.ServiceResponse {
+func BuildServiceResponsesFromSnapshots(rows []storage.ServiceRow) []structs.ServiceResponse {
+	return buildServiceResponsesFromData(rows)
+}
+
+func buildServiceResponsesFromData(rows []storage.ServiceRow) []structs.ServiceResponse {
 	response := make([]structs.ServiceResponse, len(rows))
 	for i, row := range rows {
-		baseline := baselines[row.ID]
-		probe := probeStats[row.ID]
-		status := DetermineStatus(row.RecentReportCount, &baseline, probe.RecentProbeTotal, probe.RecentProbeFailures)
+		status := row.Status
+		if status == "" {
+			status = string(algorithm.StatusOperational)
+		}
 
 		response[i] = structs.ServiceResponse{
 			ID:            row.ID,
@@ -81,8 +65,9 @@ func buildServiceResponsesFromData(
 			URL:           row.HomepageURL,
 			IconURL:       fmt.Sprintf("https://s2.googleusercontent.com/s2/favicons?sz=64&domain=%s", row.HomepageURL),
 			Category:      row.Category,
-			Status:        string(status),
+			Status:        status,
 			RecentReports: row.RecentReportCount,
+			ComputedAt:    row.ComputedAt,
 		}
 	}
 

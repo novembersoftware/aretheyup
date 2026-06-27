@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/lib/pq"
+	"github.com/novembersoftware/aretheyup/algorithm"
 	"github.com/novembersoftware/aretheyup/structs"
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
@@ -33,7 +34,30 @@ type ProbeStats struct {
 	RecentProbeFailures int64 `gorm:"column:recent_probe_failures"`
 }
 
-func (s *Storage) RefreshAllBaselines(ctx context.Context, now time.Time) error {
+const probeBaselineRollupQuery = `
+	SELECT
+		hour_of_week,
+		CASE
+			WHEN SUM(total_count) = 0 THEN 0
+			ELSE (SUM(failure_count)::float8 / SUM(total_count))
+		END AS probe_failure_rate,
+		SUM(total_count)::int AS probe_failure_samples,
+		0::float8 AS probe_latency_median_ms,
+		SUM(success_latency_count)::int AS probe_latency_samples
+	FROM probe_hourly_rollups
+	WHERE service_id = ?
+		AND bucket_start >= ?
+		AND bucket_start + interval '1 hour' <= ?::timestamptz
+	GROUP BY hour_of_week
+`
+
+type BaselineRefreshStats struct {
+	ServicesScanned      int
+	BaselineRowsAffected int64
+}
+
+func (s *Storage) RefreshAllBaselines(ctx context.Context, now time.Time) (BaselineRefreshStats, error) {
+	var stats BaselineRefreshStats
 	// We refresh every active service each cycle so API reads stay simple
 	type serviceSeed struct {
 		ID        uint
@@ -46,19 +70,22 @@ func (s *Storage) RefreshAllBaselines(ctx context.Context, now time.Time) error 
 		Select("id, created_at").
 		Where("active = ?", true).
 		Find(&services).Error; err != nil {
-		return err
+		return stats, err
 	}
+	stats.ServicesScanned = len(services)
 
 	for _, service := range services {
-		if err := s.refreshServiceBaselines(ctx, service.ID, service.CreatedAt, now); err != nil {
-			return fmt.Errorf("refresh baseline for service %d: %w", service.ID, err)
+		rowsAffected, err := s.refreshServiceBaselines(ctx, service.ID, service.CreatedAt, now)
+		if err != nil {
+			return stats, fmt.Errorf("refresh baseline for service %d: %w", service.ID, err)
 		}
+		stats.BaselineRowsAffected += rowsAffected
 	}
 
-	return nil
+	return stats, nil
 }
 
-func (s *Storage) refreshServiceBaselines(ctx context.Context, serviceID uint, createdAt, now time.Time) error {
+func (s *Storage) refreshServiceBaselines(ctx context.Context, serviceID uint, createdAt, now time.Time) (int64, error) {
 	// Baselines are capped at 6 months of history and aligned to 30-minute windows
 	end := floorToHalfHour(now.UTC())
 	start := createdAt.UTC()
@@ -69,7 +96,7 @@ func (s *Storage) refreshServiceBaselines(ctx context.Context, serviceID uint, c
 	start = floorToHalfHour(start)
 
 	if start.After(end) {
-		return nil
+		return 0, nil
 	}
 
 	// Build per-window report counts (including zero-report windows) and then roll them up
@@ -99,41 +126,28 @@ func (s *Storage) refreshServiceBaselines(ctx context.Context, serviceID uint, c
 		FROM window_counts
 		GROUP BY hour_of_week
 	`, start, end, serviceID).Scan(&userBuckets).Error; err != nil {
-		return err
+		return 0, err
 	}
 
 	if len(userBuckets) == 0 {
-		return nil
+		return 0, nil
 	}
 
-	// Probe baseline uses the same hour-of-week bucket strategy, but based on failures
-	var probeBuckets []probeBaselineBucket
-	if err := s.db.WithContext(ctx).Raw(`
-		SELECT
-			(EXTRACT(DOW FROM created_at)::int * 24 + EXTRACT(HOUR FROM created_at)::int) AS hour_of_week,
-			(SUM(CASE WHEN success = false THEN 1 ELSE 0 END)::float8 / COUNT(*)) AS probe_failure_rate,
-			COUNT(*)::int AS probe_failure_samples,
-			COALESCE(
-				PERCENTILE_CONT(0.5) WITHIN GROUP (ORDER BY response_time_ms)
-				FILTER (WHERE success = true AND response_time_ms IS NOT NULL),
-				0
-			)::float8 AS probe_latency_median_ms,
-			COUNT(response_time_ms) FILTER (WHERE success = true AND response_time_ms IS NOT NULL)::int AS probe_latency_samples
-		FROM probe_results
-		WHERE service_id = ?
-			AND created_at >= ?
-			AND created_at <= ?
-		GROUP BY hour_of_week
-	`, serviceID, start, end).Scan(&probeBuckets).Error; err != nil {
-		// Let report baselines continue even when probe storage is not ready yet
-		if !isProbeDataUnavailable(err) {
-			return err
+	// Probe baseline uses the same hour-of-week bucket strategy, but only from
+	// completed hourly rollup buckets that fit fully inside the baseline window.
+	probeByHour := map[int]probeBaselineBucket{}
+	probeRollupStart := ceilToHour(start)
+	if !probeRollupStart.After(end) {
+		var probeBuckets []probeBaselineBucket
+		if err := s.db.WithContext(ctx).Raw(probeBaselineRollupQuery, serviceID, probeRollupStart, end).Scan(&probeBuckets).Error; err != nil {
+			// Let report baselines continue even when probe storage is not ready yet
+			if !isProbeDataUnavailable(err) {
+				return 0, err
+			}
 		}
-	}
-
-	probeByHour := make(map[int]probeBaselineBucket, len(probeBuckets))
-	for _, b := range probeBuckets {
-		probeByHour[b.HourOfWeek] = b
+		for _, b := range probeBuckets {
+			probeByHour[b.HourOfWeek] = b
+		}
 	}
 
 	rows := make([]structs.ServiceBaseline, 0, len(userBuckets))
@@ -153,7 +167,7 @@ func (s *Storage) refreshServiceBaselines(ctx context.Context, serviceID uint, c
 	}
 
 	// Upsert keeps one row per (service, hour_of_week)
-	return s.db.WithContext(ctx).Clauses(clause.OnConflict{
+	result := s.db.WithContext(ctx).Clauses(clause.OnConflict{
 		Columns: []clause.Column{{Name: "service_id"}, {Name: "hour_of_week"}},
 		DoUpdates: clause.AssignmentColumns([]string{
 			"mean_reports",
@@ -165,7 +179,12 @@ func (s *Storage) refreshServiceBaselines(ctx context.Context, serviceID uint, c
 			"probe_latency_samples",
 			"updated_at",
 		}),
-	}).Create(&rows).Error
+	}).Create(&rows)
+	if result.Error != nil {
+		return 0, result.Error
+	}
+
+	return result.RowsAffected, nil
 }
 
 func (s *Storage) GetBaselineForServiceHour(ctx context.Context, serviceID uint, hourOfWeek int) (*structs.ServiceBaseline, error) {
@@ -203,71 +222,120 @@ func (s *Storage) GetBaselinesForServicesHour(ctx context.Context, serviceIDs []
 }
 
 func (s *Storage) GetRecentProbeStats(ctx context.Context, serviceID uint, limit int) (int64, int64, error) {
-	// Pull only the latest N rows for this service and aggregate in SQL
-	var stat ProbeStats
-	if err := s.db.WithContext(ctx).Raw(`
-		SELECT
-			COUNT(*) AS recent_probe_total,
-			COALESCE(SUM(CASE WHEN success = false THEN 1 ELSE 0 END), 0) AS recent_probe_failures
-		FROM (
-			SELECT success
-			FROM probe_results
-			WHERE service_id = ?
-			ORDER BY created_at DESC
-			LIMIT ?
-		) AS recent
-	`, serviceID, limit).Scan(&stat).Error; err != nil {
-		// Missing probe tables should behave like no probe samples
+	var state structs.ServiceProbeState
+	if err := s.db.WithContext(ctx).
+		Select("service_id", "recent_probe_total", "recent_probe_failures").
+		Where("service_id = ?", serviceID).
+		First(&state).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return s.getRawRecentProbeStats(ctx, serviceID, limit)
+		}
 		if isProbeDataUnavailable(err) {
-			return 0, 0, nil
+			return s.getRawRecentProbeStats(ctx, serviceID, limit)
 		}
 		return 0, 0, err
 	}
 
-	return stat.RecentProbeTotal, stat.RecentProbeFailures, nil
+	return state.RecentProbeTotal, state.RecentProbeFailures, nil
 }
 
 func (s *Storage) GetRecentProbeStatsForServices(ctx context.Context, serviceIDs []uint, limit int) (map[uint]ProbeStats, error) {
-	// Same as above, but batched using a window function to avoid N+1 queries
 	byService := make(map[uint]ProbeStats, len(serviceIDs))
 	if len(serviceIDs) == 0 {
 		return byService, nil
 	}
 
-	var stats []ProbeStats
+	var states []structs.ServiceProbeState
 	serviceIDList := toInt64Slice(serviceIDs)
-	if err := s.db.WithContext(ctx).Raw(`
-		WITH ranked AS (
+	if err := s.db.WithContext(ctx).
+		Select("service_id", "recent_probe_total", "recent_probe_failures").
+		Where("service_id = ANY(?)", pq.Array(serviceIDList)).
+		Find(&states).Error; err != nil {
+		if isProbeDataUnavailable(err) {
+			return s.getRawRecentProbeStatsForServices(ctx, serviceIDs, limit)
+		}
+		return nil, err
+	}
+
+	for _, state := range states {
+		byService[state.ServiceID] = ProbeStats{
+			ServiceID:           state.ServiceID,
+			RecentProbeTotal:    state.RecentProbeTotal,
+			RecentProbeFailures: state.RecentProbeFailures,
+		}
+	}
+
+	missingServiceIDs := make([]uint, 0)
+	for _, serviceID := range serviceIDs {
+		if _, ok := byService[serviceID]; !ok {
+			missingServiceIDs = append(missingServiceIDs, serviceID)
+		}
+	}
+	if len(missingServiceIDs) > 0 {
+		rawStats, err := s.getRawRecentProbeStatsForServices(ctx, missingServiceIDs, limit)
+		if err != nil {
+			if isProbeDataUnavailable(err) {
+				return byService, nil
+			}
+			return nil, err
+		}
+		for serviceID, stats := range rawStats {
+			byService[serviceID] = stats
+		}
+	}
+
+	return byService, nil
+}
+
+func (s *Storage) getRawRecentProbeStats(ctx context.Context, serviceID uint, limit int) (int64, int64, error) {
+	stats, err := s.getRawRecentProbeStatsForServices(ctx, []uint{serviceID}, limit)
+	if err != nil {
+		return 0, 0, err
+	}
+	stat := stats[serviceID]
+	return stat.RecentProbeTotal, stat.RecentProbeFailures, nil
+}
+
+func (s *Storage) getRawRecentProbeStatsForServices(ctx context.Context, serviceIDs []uint, limit int) (map[uint]ProbeStats, error) {
+	byService := make(map[uint]ProbeStats, len(serviceIDs))
+	if len(serviceIDs) == 0 {
+		return byService, nil
+	}
+	if limit <= 0 {
+		limit = algorithm.RecentProbeWindow
+	}
+	if limit > probeRecentResultsCap {
+		limit = probeRecentResultsCap
+	}
+
+	var stats []ProbeStats
+	err := s.db.WithContext(ctx).Raw(`
+		WITH recent AS (
 			SELECT
 				service_id,
 				success,
-				ROW_NUMBER() OVER (PARTITION BY service_id ORDER BY created_at DESC) AS rn
+				ROW_NUMBER() OVER (
+					PARTITION BY service_id
+					ORDER BY created_at DESC, id DESC
+				) AS recent_rank
 			FROM probe_results
 			WHERE service_id = ANY(?)
-		),
-		recent AS (
-			SELECT service_id, success
-			FROM ranked
-			WHERE rn <= ?
 		)
 		SELECT
 			service_id,
 			COUNT(*) AS recent_probe_total,
 			COALESCE(SUM(CASE WHEN success = false THEN 1 ELSE 0 END), 0) AS recent_probe_failures
 		FROM recent
+		WHERE recent_rank <= ?
 		GROUP BY service_id
-	`, pq.Array(serviceIDList), limit).Scan(&stats).Error; err != nil {
-		// Missing probe tables should behave like an empty probe map
-		if isProbeDataUnavailable(err) {
-			return byService, nil
-		}
+	`, pq.Array(toInt64Slice(serviceIDs)), limit).Scan(&stats).Error
+	if err != nil {
 		return nil, err
 	}
 
 	for _, stat := range stats {
 		byService[stat.ServiceID] = stat
 	}
-
 	return byService, nil
 }
 
@@ -278,6 +346,15 @@ func floorToHalfHour(t time.Time) time.Time {
 		minute = 30
 	}
 	return time.Date(t.Year(), t.Month(), t.Day(), t.Hour(), minute, 0, 0, t.Location())
+}
+
+func ceilToHour(t time.Time) time.Time {
+	t = t.UTC()
+	truncated := t.Truncate(time.Hour)
+	if t.Equal(truncated) {
+		return truncated
+	}
+	return truncated.Add(time.Hour)
 }
 
 func toInt64Slice(in []uint) []int64 {

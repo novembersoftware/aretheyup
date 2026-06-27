@@ -15,6 +15,11 @@ type Service struct {
 	Submissions  []ServiceSubmission
 	UserReports  []UserReport
 	ProbeResults []ProbeResult
+	// Current probe read model and bounded recent history.
+	ProbeState         ServiceProbeState
+	ProbeRecentResults []ProbeRecentResult
+	ProbeHourlyRollups []ProbeHourlyRollup
+	StatusSnapshot     ServiceStatus
 	// One baseline row per hour-of-week bucket for this service
 	Baselines   []ServiceBaseline
 	Incidents   []Incident
@@ -55,6 +60,23 @@ type ServiceBaseline struct {
 	UpdatedAt            time.Time
 }
 
+type ServiceStatus struct {
+	ServiceID                uint      `gorm:"primaryKey"`
+	Status                   string    `gorm:"not null;index"`
+	RecentReports            int64     `gorm:"not null;default:0"`
+	RecentProbeTotal         int64     `gorm:"not null;default:0"`
+	RecentProbeFailures      int64     `gorm:"not null;default:0"`
+	BaselineMeanReports      float64   `gorm:"not null;default:0"`
+	BaselineStdDevReports    float64   `gorm:"not null;default:0"`
+	BaselineSampleCount      int       `gorm:"not null;default:0"`
+	ProbeBaselineFailureRate float64   `gorm:"not null;default:0"`
+	ProbeBaselineSamples     int       `gorm:"not null;default:0"`
+	HourOfWeek               int       `gorm:"not null;default:0"`
+	ComputedAt               time.Time `gorm:"not null;index"`
+	CreatedAt                time.Time
+	UpdatedAt                time.Time
+}
+
 type UserReport struct {
 	ID          uint   `gorm:"primaryKey"`
 	ServiceID   uint   `gorm:"not null;index"`
@@ -77,13 +99,65 @@ type ProbeResult struct {
 	UpdatedAt      time.Time
 }
 
+type ProbeHourlyRollup struct {
+	ID                  uint      `gorm:"primaryKey"`
+	ServiceID           uint      `gorm:"not null;uniqueIndex:idx_probe_hourly_rollups_service_bucket"`
+	BucketStart         time.Time `gorm:"not null;uniqueIndex:idx_probe_hourly_rollups_service_bucket"`
+	HourOfWeek          int       `gorm:"not null;index"`
+	TotalCount          int64     `gorm:"not null;default:0"`
+	FailureCount        int64     `gorm:"not null;default:0"`
+	SuccessLatencySumMs int64     `gorm:"not null;default:0"`
+	SuccessLatencyCount int64     `gorm:"not null;default:0"`
+	MinLatencyMs        *int
+	MaxLatencyMs        *int
+	CreatedAt           time.Time
+	UpdatedAt           time.Time
+}
+
+type ServiceProbeState struct {
+	ID                        uint `gorm:"primaryKey"`
+	ServiceID                 uint `gorm:"uniqueIndex;not null"`
+	LastCheckedAt             *time.Time
+	LastResultSuccess         bool `gorm:"not null;default:false"`
+	LastStatusCode            *int
+	LastResponseTimeMs        *int
+	LastResultFailureType     ProbeFailureType
+	LastResultErrorMessage    string
+	LastSuccessAt             *time.Time
+	LastSuccessStatusCode     *int
+	LastSuccessResponseTimeMs *int
+	LastFailureAt             *time.Time
+	LastFailureStatusCode     *int
+	LastFailureResponseTimeMs *int
+	LastFailureType           ProbeFailureType
+	LastFailureErrorMessage   string
+	RecentProbeTotal          int64 `gorm:"not null;default:0"`
+	RecentProbeFailures       int64 `gorm:"not null;default:0"`
+	RecentWindowUpdatedAt     *time.Time
+	CreatedAt                 time.Time
+	UpdatedAt                 time.Time
+}
+
+type ProbeRecentResult struct {
+	ID             uint      `gorm:"primaryKey"`
+	ServiceID      uint      `gorm:"not null"`
+	CheckedAt      time.Time `gorm:"not null"`
+	Success        bool      `gorm:"not null"`
+	StatusCode     *int
+	ResponseTimeMs *int
+	FailureType    ProbeFailureType
+	ErrorMessage   string
+	CreatedAt      time.Time
+	UpdatedAt      time.Time
+}
+
 type ProbeConfig struct {
 	ID              uint      `gorm:"primaryKey"`
 	ServiceID       uint      `gorm:"uniqueIndex;not null"`
 	Enabled         bool      `gorm:"not null;default:true"`
 	URL             string    `gorm:"not null"`
 	Method          string    `gorm:"not null;default:'GET'"`
-	IntervalSeconds int       `gorm:"not null;default:60"`
+	IntervalSeconds int       `gorm:"not null;default:300"`
 	TimeoutSeconds  int       `gorm:"not null;default:10"`
 	ExpectedStatus  int       `gorm:"not null;default:200"` // which code = healthy
 	NextRunAt       time.Time `gorm:"index"`

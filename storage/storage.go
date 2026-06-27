@@ -2,26 +2,21 @@ package storage
 
 import (
 	"context"
-	"encoding/json"
-	"errors"
-	"fmt"
+	"sync/atomic"
 	"time"
 
-	"github.com/novembersoftware/aretheyup/algorithm"
 	"github.com/novembersoftware/aretheyup/structs"
 	r "github.com/redis/go-redis/v9"
-	"github.com/rs/zerolog/log"
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
 )
 
-const listServicesCacheTTL = 10 * time.Second
-
 // Storage is the data access layer. It holds connections to all backing stores
 // and exposes methods for every data operation
 type Storage struct {
-	db    *gorm.DB
-	redis *r.Client
+	db             *gorm.DB
+	redis          *r.Client
+	listCacheStats listCacheCounters
 }
 
 func (s *Storage) Redis() *r.Client {
@@ -33,6 +28,79 @@ func New(db *gorm.DB, redis *r.Client) *Storage {
 	return &Storage{db: db, redis: redis}
 }
 
+type listCacheCounters struct {
+	hit          atomic.Int64
+	miss         atomic.Int64
+	bypass       atomic.Int64
+	readError    atomic.Int64
+	decodeError  atomic.Int64
+	writeError   atomic.Int64
+	invalidation atomic.Int64
+}
+
+// ListCacheStats is a snapshot of list-cache effectiveness counters.
+type ListCacheStats struct {
+	Hit          int64
+	Miss         int64
+	Bypass       int64
+	ReadError    int64
+	DecodeError  int64
+	WriteError   int64
+	Invalidation int64
+}
+
+func (s *Storage) ListCacheStatsSnapshot() ListCacheStats {
+	return ListCacheStats{
+		Hit:          s.listCacheStats.hit.Load(),
+		Miss:         s.listCacheStats.miss.Load(),
+		Bypass:       s.listCacheStats.bypass.Load(),
+		ReadError:    s.listCacheStats.readError.Load(),
+		DecodeError:  s.listCacheStats.decodeError.Load(),
+		WriteError:   s.listCacheStats.writeError.Load(),
+		Invalidation: s.listCacheStats.invalidation.Load(),
+	}
+}
+
+func (s *Storage) ResetListCacheStats() ListCacheStats {
+	return ListCacheStats{
+		Hit:          s.listCacheStats.hit.Swap(0),
+		Miss:         s.listCacheStats.miss.Swap(0),
+		Bypass:       s.listCacheStats.bypass.Swap(0),
+		ReadError:    s.listCacheStats.readError.Swap(0),
+		DecodeError:  s.listCacheStats.decodeError.Swap(0),
+		WriteError:   s.listCacheStats.writeError.Swap(0),
+		Invalidation: s.listCacheStats.invalidation.Swap(0),
+	}
+}
+
+func (s *Storage) recordListCacheHit() {
+	s.listCacheStats.hit.Add(1)
+}
+
+func (s *Storage) recordListCacheMiss() {
+	s.listCacheStats.miss.Add(1)
+}
+
+func (s *Storage) recordListCacheBypass() {
+	s.listCacheStats.bypass.Add(1)
+}
+
+func (s *Storage) recordListCacheReadError() {
+	s.listCacheStats.readError.Add(1)
+}
+
+func (s *Storage) recordListCacheDecodeError() {
+	s.listCacheStats.decodeError.Add(1)
+}
+
+func (s *Storage) recordListCacheWriteError() {
+	s.listCacheStats.writeError.Add(1)
+}
+
+func (s *Storage) recordListCacheInvalidation() {
+	s.listCacheStats.invalidation.Add(1)
+}
+
 // ServiceRow is the result of a services query that includes aggregated report counts
 type ServiceRow struct {
 	ID                uint
@@ -41,6 +109,8 @@ type ServiceRow struct {
 	HomepageURL       string
 	Category          string
 	RecentReportCount int64
+	Status            string
+	ComputedAt        time.Time
 }
 
 type SitemapServiceRow struct {
@@ -50,35 +120,21 @@ type SitemapServiceRow struct {
 
 // ListServices returns services ordered by recent report count (descending).
 func (s *Storage) ListServices(ctx context.Context, limit, offset int) ([]ServiceRow, error) {
-	cacheKey := ""
-	shouldUseCache := limit == 49 && offset == 0
-	if shouldUseCache {
-		cacheKey = listServicesCacheKey(limit, offset)
-		if cached, ok := s.getCachedServiceRows(ctx, cacheKey); ok {
-			return cached, nil
-		}
-	}
-
 	var rows []ServiceRow
-	// Keep this in sync with the algorithm's report window.
-	reportWindowStart := time.Now().Add(-algorithm.ReportWindow)
 	result := s.db.WithContext(ctx).Raw(`
 		SELECT s.id, s.slug, s.name, s.homepage_url, s.category,
-		       COUNT(ur.id) AS recent_report_count
+		       COALESCE(ss.recent_reports, 0) AS recent_report_count,
+		       COALESCE(ss.status, 'Operational') AS status,
+		       ss.computed_at
 		FROM services s
-		LEFT JOIN user_reports ur ON ur.service_id = s.id AND ur.created_at > ?
+		LEFT JOIN service_statuses ss ON ss.service_id = s.id
 		WHERE s.active = true
-		GROUP BY s.id
-		ORDER BY recent_report_count DESC
+		ORDER BY recent_report_count DESC, s.name ASC
 		LIMIT ?
 		OFFSET ?
-	`, reportWindowStart, limit, offset).Scan(&rows)
+	`, limit, offset).Scan(&rows)
 	if result.Error != nil {
 		return rows, result.Error
-	}
-
-	if shouldUseCache {
-		s.setCachedServiceRows(ctx, cacheKey, rows)
 	}
 
 	return rows, nil
@@ -88,18 +144,17 @@ func (s *Storage) ListServices(ctx context.Context, limit, offset int) ([]Servic
 // ordered by recent report count (descending)
 func (s *Storage) SearchServices(ctx context.Context, query string) ([]ServiceRow, error) {
 	var rows []ServiceRow
-	// Same window as list/detail status checks.
-	reportWindowStart := time.Now().Add(-algorithm.ReportWindow)
 	result := s.db.WithContext(ctx).Raw(`
 		SELECT s.id, s.slug, s.name, s.homepage_url, s.category,
-		       COUNT(ur.id) AS recent_report_count
+		       COALESCE(ss.recent_reports, 0) AS recent_report_count,
+		       COALESCE(ss.status, 'Operational') AS status,
+		       ss.computed_at
 		FROM services s
-		LEFT JOIN user_reports ur ON ur.service_id = s.id AND ur.created_at > ?
+		LEFT JOIN service_statuses ss ON ss.service_id = s.id
 		WHERE s.active = true AND LOWER(s.name) LIKE LOWER(?)
-		GROUP BY s.id
-		ORDER BY recent_report_count DESC
+		ORDER BY recent_report_count DESC, s.name ASC
 		LIMIT 48
-	`, reportWindowStart, "%"+query+"%").Scan(&rows)
+	`, "%"+query+"%").Scan(&rows)
 	return rows, result.Error
 }
 
@@ -127,7 +182,7 @@ func (s *Storage) CreateUserReport(ctx context.Context, report *structs.UserRepo
 		return err
 	}
 
-	s.invalidateServiceListCache(ctx)
+	s.invalidateServiceCachesByID(ctx, report.ServiceID)
 	return nil
 }
 
@@ -192,7 +247,7 @@ func (s *Storage) GetServiceByID(ctx context.Context, id uint) (*structs.Service
 
 // CreateService inserts a new service record and returns the created service.
 func (s *Storage) CreateService(ctx context.Context, service *structs.Service) error {
-	return s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+	err := s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		if err := tx.Create(service).Error; err != nil {
 			return err
 		}
@@ -203,25 +258,47 @@ func (s *Storage) CreateService(ctx context.Context, service *structs.Service) e
 			DoNothing: true,
 		}).Create(&cfg).Error
 	})
+	if err != nil {
+		return err
+	}
+
+	s.InvalidateServiceCaches(ctx, service.Slug)
+	return nil
 }
 
 // UpdateService saves all fields of an existing service (must have a valid ID).
 func (s *Storage) UpdateService(ctx context.Context, service *structs.Service) error {
+	var existing structs.Service
+	if err := s.db.WithContext(ctx).
+		Model(&structs.Service{}).
+		Select("slug").
+		Where("id = ?", service.ID).
+		First(&existing).Error; err != nil {
+		return err
+	}
+
 	if err := s.db.WithContext(ctx).Save(service).Error; err != nil {
 		return err
 	}
 
-	s.invalidateServiceListCache(ctx)
+	s.InvalidateServiceCaches(ctx, existing.Slug, service.Slug)
 	return nil
 }
 
 // DeleteService removes a service by its primary key.
 func (s *Storage) DeleteService(ctx context.Context, id uint) error {
+	var service structs.Service
+	_ = s.db.WithContext(ctx).
+		Model(&structs.Service{}).
+		Select("slug").
+		Where("id = ?", id).
+		First(&service).Error
+
 	if err := s.db.WithContext(ctx).Delete(&structs.Service{}, id).Error; err != nil {
 		return err
 	}
 
-	s.invalidateServiceListCache(ctx)
+	s.InvalidateServiceCaches(ctx, service.Slug)
 	return nil
 }
 
@@ -238,10 +315,14 @@ func (s *Storage) GetProbeConfig(ctx context.Context, serviceID uint) (*structs.
 // UpsertProbeConfig creates or updates the probe config for a service.
 func (s *Storage) UpsertProbeConfig(ctx context.Context, pc *structs.ProbeConfig) error {
 	if pc.ID == 0 {
-		if pc.NextRunAt.IsZero() {
-			pc.NextRunAt = time.Now().UTC()
+		now := time.Now().UTC()
+		if pc.IntervalSeconds <= 0 {
+			pc.IntervalSeconds = GlobalProbeIntervalSeconds
 		}
-		return s.db.WithContext(ctx).Clauses(clause.OnConflict{
+		if pc.NextRunAt.IsZero() {
+			pc.NextRunAt = initialProbeRunAt(pc.ServiceID, now)
+		}
+		err := s.db.WithContext(ctx).Clauses(clause.OnConflict{
 			Columns: []clause.Column{{Name: "service_id"}},
 			DoUpdates: clause.Assignments(map[string]any{
 				"enabled":          pc.Enabled,
@@ -250,9 +331,15 @@ func (s *Storage) UpsertProbeConfig(ctx context.Context, pc *structs.ProbeConfig
 				"interval_seconds": pc.IntervalSeconds,
 				"timeout_seconds":  pc.TimeoutSeconds,
 				"expected_status":  pc.ExpectedStatus,
-				"updated_at":       time.Now().UTC(),
+				"updated_at":       now,
 			}),
 		}).Create(pc).Error
+		if err != nil {
+			return err
+		}
+
+		s.invalidateServiceCachesByID(ctx, pc.ServiceID)
+		return nil
 	}
 
 	updates := map[string]any{
@@ -268,61 +355,14 @@ func (s *Storage) UpsertProbeConfig(ctx context.Context, pc *structs.ProbeConfig
 		updates["lease_expires_at"] = nil
 	}
 
-	return s.db.WithContext(ctx).
+	err := s.db.WithContext(ctx).
 		Model(&structs.ProbeConfig{}).
 		Where("id = ?", pc.ID).
 		Updates(updates).Error
-}
-
-func (s *Storage) getCachedServiceRows(ctx context.Context, key string) ([]ServiceRow, bool) {
-	if s.redis == nil {
-		return nil, false
-	}
-
-	payload, err := s.redis.Get(ctx, key).Bytes()
 	if err != nil {
-		if !errors.Is(err, r.Nil) {
-			log.Debug().Err(err).Str("cache_key", key).Msg("Failed to read list cache")
-		}
-		return nil, false
+		return err
 	}
 
-	var rows []ServiceRow
-	if err := json.Unmarshal(payload, &rows); err != nil {
-		log.Debug().Err(err).Str("cache_key", key).Msg("Failed to decode list cache")
-		_ = s.redis.Del(ctx, key).Err()
-		return nil, false
-	}
-
-	return rows, true
-}
-
-func (s *Storage) setCachedServiceRows(ctx context.Context, key string, rows []ServiceRow) {
-	if s.redis == nil {
-		return
-	}
-
-	payload, err := json.Marshal(rows)
-	if err != nil {
-		log.Debug().Err(err).Str("cache_key", key).Msg("Failed to encode list cache")
-		return
-	}
-
-	if err := s.redis.Set(ctx, key, payload, listServicesCacheTTL).Err(); err != nil {
-		log.Debug().Err(err).Str("cache_key", key).Msg("Failed to write list cache")
-	}
-}
-
-func (s *Storage) invalidateServiceListCache(ctx context.Context) {
-	if s.redis == nil {
-		return
-	}
-
-	if err := s.redis.Del(ctx, listServicesCacheKey(49, 0)).Err(); err != nil {
-		log.Debug().Err(err).Str("cache_key", listServicesCacheKey(49, 0)).Msg("Failed to invalidate list cache")
-	}
-}
-
-func listServicesCacheKey(limit, offset int) string {
-	return fmt.Sprintf("services:list:v2:limit:%d:offset:%d", limit, offset)
+	s.invalidateServiceCachesByID(ctx, pc.ServiceID)
+	return nil
 }

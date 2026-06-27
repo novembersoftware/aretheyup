@@ -9,11 +9,14 @@ Core runtime flow:
 1. `main.go` loads config and logging, then connects to Postgres and Redis.
 2. `services/MigrateDB` applies schema changes with GORM `AutoMigrate`.
 3. `storage.BackfillMissingProbeConfigs` ensures every existing service has a default probe config derived from its `HomepageURL`.
-4. API mode starts two background loops before booting Gin:
+4. API mode boots Gin for HTML pages, HTMX fragments, and JSON responses.
+5. Worker mode starts recurring database loops:
    - baseline refresh every hour
+   - status snapshot refresh every 30 seconds
    - incident reconciliation every minute
-5. Probe mode runs a separate synthetic worker loop that claims due probe configs and writes `probe_results`.
-6. Gin serves HTML pages, HTMX fragments, and JSON responses.
+   - policy-aware raw probe result cleanup every hour
+   - table-stat logging every hour
+6. Probe mode runs a separate synthetic worker loop that claims due probe configs and writes `probe_results`.
 
 ## HTTP surface
 
@@ -55,29 +58,37 @@ Templates are parsed from `templates/*.html` and `templates/components/*.html`. 
 
 The status algorithm is defined in `algorithm/status.go` and documented in [algorithm.md](./algorithm.md).
 
-The API uses the same algorithm path for both list and detail responses through `utils/DetermineStatus`, and the incident worker reuses the same logic for open/close transitions. Detail responses also include recent probe history, latency summaries, and last-success / last-failure labels assembled in `api/routes/services.go`, `storage/probes.go`, and `utils/probes.go`.
+`service_statuses` stores precomputed decisions used by API list/search/detail reads and by incident reconciliation. Detail responses also include recent probe history, latency summaries, and last-success / last-failure labels assembled in `api/routes/services.go`, `storage/probes.go`, and `utils/probes.go`.
 
 ## Workers
 
 ### Baseline refresher
 
-`workers/baseline.go` refreshes all service baselines immediately at startup and then every hour. This keeps the hour-of-week baseline table warm for request handlers.
+`workers/baseline.go` runs only in `worker` mode. It refreshes all service baselines immediately at startup and then every hour. This keeps the hour-of-week baseline table warm for request handlers.
 
 ### Incident tracker
 
-`workers/incidents.go` recalculates current service state once per minute and opens or resolves incidents based on transitions into and out of `Outage`. Probe-only `Degraded` states are visible in the UI but do not create incident records.
+`workers/incidents.go` runs only in `worker` mode. It reconciles current service state once per minute from `service_statuses` and opens or resolves incidents based on transitions into and out of `Outage`. Probe-only `Degraded` states are visible in the UI but do not create incident records.
+
+### Status refresher
+
+`workers/statuses.go` runs only in `worker` mode. It refreshes `service_statuses` immediately at startup and then every 30 seconds. Refreshes batch report counts, baselines, and derived probe state before upserting snapshot rows.
+
+### Probe result cleaner
+
+`workers/cleanup.go` runs only in `worker` mode. It deletes expired raw probe rows immediately at startup and then once per hour, retaining raw successes for 24 hours and raw failures for 14 days. Cleanup deletes successes and failures in separate small-batch scans and only runs `VACUUM (ANALYZE) probe_results` after a large purge. Run any historical rollup backfill before starting worker mode on existing production data, because raw history is incomplete after success rows expire.
 
 ### Synthetic probe worker
 
 `workers/probe.go` runs only in `probe` mode. It:
 
 - wakes every 5 seconds to claim due probe configs for active services
+- schedules each service on the global 5-minute cadence stored in `next_run_at`
 - leases configs in batches of 16 using `FOR UPDATE SKIP LOCKED`
 - executes HTTP requests with normalized method, timeout, and expected status handling
 - records typed failure reasons such as `timeout`, `dns`, `connect`, `tls`, and `http_status`
-- deletes raw probe rows older than 30 days once per hour
 
-Probe configs are stored per service in `probe_configs`. New services get a default config from `HomepageURL`, and startup backfill applies the same default to older rows that predate the probe feature.
+Probe configs are stored per service in `probe_configs`. New services get a default config from `HomepageURL`, and startup backfill applies the same default to older rows that predate the probe feature. New and backfilled configs get deterministic initial jitter across the 5-minute cadence window, and recurring schedules advance from the stored `next_run_at` phase so probe worker restarts do not collapse every service onto the same due time. The legacy `interval_seconds` column is retained for compatibility but is not used for scheduling.
 
 ## Storage and data model
 
@@ -87,7 +98,11 @@ Schema models live in `structs/schema.go`:
 - `UserReport`: user-submitted outage report
 - `ProbeResult`: external probe outcome
 - `ProbeConfig`: probe definition per service
+- `ServiceProbeState`: current derived probe state per service
+- `ProbeRecentResult`: capped recent probe history per service
+- `ProbeHourlyRollup`: compact hourly probe aggregates for baselines
 - `ServiceBaseline`: hour-of-week report and probe baseline statistics
+- `ServiceStatus`: precomputed current status snapshot
 - `Incident`: tracked outage window
 
 The storage layer in `storage/` owns SQL queries, Redis-backed list caching, baseline lookups, incident lookups, probe leasing/history queries, and manage-mode CRUD.
@@ -105,9 +120,12 @@ Relevant files:
 - `api/routes/router.go`
 - `api/routes/services.go`
 - `workers/baseline.go`
+- `workers/statuses.go`
 - `workers/incidents.go`
 - `workers/probe.go`
+- `workers/cleanup.go`
 - `storage/storage.go`
 - `storage/probes.go`
+- `storage/statuses.go`
 - `storage/service-detail.go`
 - `structs/schema.go`

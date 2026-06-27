@@ -11,18 +11,38 @@ import (
 const baselineRefreshInterval = time.Hour
 
 func StartBaselineRefresher(store *storage.Storage) {
+	log.Info().Dur("interval", baselineRefreshInterval).Msg("Starting baseline refresher")
+
 	// Keep baselines warm in the background so request handlers can just read them
 	go func() {
 		refresh := func() {
 			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
 			defer cancel()
 
-			if err := store.RefreshAllBaselines(ctx, time.Now().UTC()); err != nil {
-				log.Error().Err(err).Msg("Failed to refresh baselines")
+			start := time.Now()
+			stats, err := store.RefreshAllBaselines(ctx, time.Now().UTC())
+			duration := time.Since(start)
+			if err != nil {
+				log.Error().
+					Err(err).
+					Str("mode", "worker").
+					Str("job", "baseline_refresh").
+					Dur("duration", duration).
+					Bool("success", false).
+					Int("services_scanned", stats.ServicesScanned).
+					Int64("baseline_rows_affected", stats.BaselineRowsAffected).
+					Msg("Baseline refresh failed")
 				return
 			}
 
-			log.Debug().Msg("Baselines refreshed")
+			log.Info().
+				Str("mode", "worker").
+				Str("job", "baseline_refresh").
+				Dur("duration", duration).
+				Bool("success", true).
+				Int("services_scanned", stats.ServicesScanned).
+				Int64("baseline_rows_affected", stats.BaselineRowsAffected).
+				Msg("Baseline refresh completed")
 		}
 
 		refresh()

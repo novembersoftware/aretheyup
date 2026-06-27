@@ -19,3 +19,15 @@ func Load() {
 func IsProd() bool {
 	return C.Env == "prod"
 }
+
+func StatusSnapshotAPIReadsEnabled() bool {
+	return C != nil && C.StatusSnapshotAPIReadsEnabled
+}
+
+func StatusSnapshotIncidentReadsEnabled() bool {
+	return C != nil && C.StatusSnapshotIncidentReadsEnabled
+}
+
+func RawProbeRetentionCleanupEnabled() bool {
+	return C != nil && C.RawProbeRetentionCleanupEnabled
+}

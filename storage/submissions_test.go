@@ -97,8 +97,8 @@ func TestSubmitServiceUsesDefaultProbeConfigValues(t *testing.T) {
 	if cfg.Method != "GET" {
 		t.Fatalf("Method = %q, want GET", cfg.Method)
 	}
-	if cfg.IntervalSeconds != 60 {
-		t.Fatalf("IntervalSeconds = %d, want 60", cfg.IntervalSeconds)
+	if cfg.IntervalSeconds != GlobalProbeIntervalSeconds {
+		t.Fatalf("IntervalSeconds = %d, want %d", cfg.IntervalSeconds, GlobalProbeIntervalSeconds)
 	}
 	if cfg.TimeoutSeconds != 10 {
 		t.Fatalf("TimeoutSeconds = %d, want 10", cfg.TimeoutSeconds)
@@ -106,7 +106,7 @@ func TestSubmitServiceUsesDefaultProbeConfigValues(t *testing.T) {
 	if cfg.ExpectedStatus != 200 {
 		t.Fatalf("ExpectedStatus = %d, want 200", cfg.ExpectedStatus)
 	}
-	if !cfg.NextRunAt.Equal(now) {
-		t.Fatalf("NextRunAt = %s, want %s", cfg.NextRunAt, now)
+	if want := initialProbeRunAt(7, now); !cfg.NextRunAt.Equal(want) {
+		t.Fatalf("NextRunAt = %s, want jittered %s", cfg.NextRunAt, want)
 	}
 }
